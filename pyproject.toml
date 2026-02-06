@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fundus-recommend"
+version = "0.1.0"
+description = "News recommendation engine powered by Fundus"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.29",
+    "pgvector>=0.3",
+    "alembic>=1.13",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "sentence-transformers>=3.0",
+    "numpy>=1.26",
+    "fundus>=0.5.5",
+    "click>=8.0",
+    "psycopg2-binary>=2.9",
+]
+
+[project.scripts]
+fr-crawl = "fundus_recommend.cli.crawl:main"
+fr-embed = "fundus_recommend.cli.embed:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
