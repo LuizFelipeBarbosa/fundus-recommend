@@ -7,9 +7,10 @@ class Settings(BaseSettings):
     embedding_model: str = "all-MiniLM-L6-v2"
     embedding_dim: int = 384
     dedup_threshold: float = 0.50
-    ranking_recency_weight: float = 0.5
-    ranking_engagement_weight: float = 0.3
-    ranking_source_count_weight: float = 0.2
+    ranking_freshness_weight: float = 0.4
+    ranking_prominence_weight: float = 0.35
+    ranking_authority_weight: float = 0.2
+    ranking_engagement_weight: float = 0.05
     ranking_diversity_lambda: float = 0.3
     ranking_recency_half_life_hours: float = 48.0
 

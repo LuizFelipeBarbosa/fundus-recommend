@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fundus_recommend.config import settings
 from fundus_recommend.models.db import Article, ArticleView, User, UserPreference
 from fundus_recommend.services.embeddings import embed_single
+from fundus_recommend.services.publisher_authority import authority_score
 from fundus_recommend.services.ranking import RankingWeights, composite_scores, mmr_rerank
 
 
@@ -194,15 +195,18 @@ async def get_ranked_articles(
             cluster_size_map[cid] = cluster_size_map.get(cid, 0) + 1
     cluster_sizes = [cluster_size_map.get(cid, 1) if cid is not None else 1 for cid in cluster_ids]
 
+    authorities = [authority_score(a.publisher) for a in articles]
+
     weights = RankingWeights(
-        recency=settings.ranking_recency_weight,
+        freshness=settings.ranking_freshness_weight,
+        prominence=settings.ranking_prominence_weight,
+        authority=settings.ranking_authority_weight,
         engagement=settings.ranking_engagement_weight,
-        source_count=settings.ranking_source_count_weight,
         diversity_lambda=settings.ranking_diversity_lambda,
         half_life_hours=settings.ranking_recency_half_life_hours,
     )
 
-    scores = composite_scores(dates, views, weights, cluster_sizes)
+    scores = composite_scores(dates, views, weights, cluster_sizes, authorities)
     offset = (page - 1) * page_size
     ranked_indices = mmr_rerank(scores, embeddings, page_size, offset, weights.diversity_lambda, cluster_ids)
 

@@ -9,14 +9,15 @@ import numpy as np
 
 @dataclass
 class RankingWeights:
-    recency: float = 0.5
-    engagement: float = 0.3
-    source_count: float = 0.2
+    freshness: float = 0.4
+    prominence: float = 0.35
+    authority: float = 0.2
+    engagement: float = 0.05
     diversity_lambda: float = 0.3
     half_life_hours: float = 48.0
 
 
-def recency_score(publishing_date: datetime | None, now: datetime, half_life_hours: float) -> float:
+def freshness_score(publishing_date: datetime | None, now: datetime, half_life_hours: float) -> float:
     if publishing_date is None:
         return 0.0
     if publishing_date.tzinfo is None:
@@ -34,7 +35,7 @@ def engagement_score(view_count: int, max_views: int) -> float:
     return math.log(1 + view_count) / math.log(1 + max_views)
 
 
-def source_count_score(cluster_size: int, max_cluster_size: int) -> float:
+def prominence_score(cluster_size: int, max_cluster_size: int) -> float:
     if max_cluster_size <= 1:
         return 0.0
     return math.log(1 + cluster_size) / math.log(1 + max_cluster_size)
@@ -45,6 +46,7 @@ def composite_scores(
     views: list[int],
     weights: RankingWeights,
     cluster_sizes: list[int] | None = None,
+    authorities: list[float] | None = None,
 ) -> np.ndarray:
     now = datetime.now(timezone.utc)
     n = len(dates)
@@ -53,10 +55,11 @@ def composite_scores(
     max_cluster = max(cluster_sizes) if cluster_sizes else 1
 
     for i in range(n):
-        r = recency_score(dates[i], now, weights.half_life_hours)
+        f = freshness_score(dates[i], now, weights.half_life_hours)
         e = engagement_score(views[i], max_views)
-        s = source_count_score(cluster_sizes[i], max_cluster) if cluster_sizes else 0.0
-        scores[i] = weights.recency * r + weights.engagement * e + weights.source_count * s
+        p = prominence_score(cluster_sizes[i], max_cluster) if cluster_sizes else 0.0
+        a = authorities[i] if authorities else 0.0
+        scores[i] = weights.freshness * f + weights.prominence * p + weights.authority * a + weights.engagement * e
 
     return scores
 
