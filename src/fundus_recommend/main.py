@@ -1,4 +1,5 @@
 from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fundus_recommend.api import articles, preferences, recommendations, search
@@ -7,6 +8,14 @@ from fundus_recommend.db.session import get_async_session
 from fundus_recommend.models.schemas import HealthResponse
 
 app = FastAPI(title="Fundus Recommend", version="0.1.0", description="News recommendation engine powered by Fundus")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(articles.router)
 app.include_router(search.router)
