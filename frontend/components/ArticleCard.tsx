@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ArticleSummary } from "@/lib/api";
+import { getDisplayTitle } from "@/lib/article-utils";
 
 function Placeholder({ publisher }: { publisher: string }) {
   const initial = publisher.charAt(0).toUpperCase();
@@ -37,7 +38,7 @@ export default function ArticleCard({
             {article.cover_image_url ? (
               <Image
                 src={article.cover_image_url}
-                alt={article.title}
+                alt={getDisplayTitle(article)}
                 fill
                 unoptimized
                 className="object-cover transition-transform duration-700 group-hover:scale-[1.03]"
@@ -69,7 +70,7 @@ export default function ArticleCard({
                 )}
               </div>
               <h2 className="font-display text-2xl font-bold leading-tight text-white text-balance">
-                {article.title}
+                {getDisplayTitle(article)}
               </h2>
               {article.authors.length > 0 && (
                 <p className="mt-2 font-sans text-xs italic text-white/70">
@@ -91,7 +92,7 @@ export default function ArticleCard({
           {article.cover_image_url ? (
             <Image
               src={article.cover_image_url}
-              alt={article.title}
+              alt={getDisplayTitle(article)}
               fill
               unoptimized
               className="object-cover transition-transform duration-700 group-hover:scale-[1.03]"
@@ -123,7 +124,7 @@ export default function ArticleCard({
           </div>
 
           <h3 className="mb-1.5 font-display text-lg font-bold leading-snug text-ink transition-colors group-hover:text-accent line-clamp-3">
-            {article.title}
+            {getDisplayTitle(article)}
           </h3>
 
           {article.authors.length > 0 && (

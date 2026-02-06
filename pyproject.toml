@@ -21,11 +21,13 @@ dependencies = [
     "fundus>=0.5.5",
     "click>=8.0",
     "psycopg2-binary>=2.9",
+    "deep-translator>=1.11",
 ]
 
 [project.scripts]
 fr-crawl = "fundus_recommend.cli.crawl:main"
 fr-embed = "fundus_recommend.cli.embed:main"
+fr-schedule = "fundus_recommend.cli.schedule:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

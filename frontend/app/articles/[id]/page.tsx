@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
 import { getArticle, getRecommendations, ArticleDetail, SearchResult } from "@/lib/api";
+import { getDisplayTitle, hasTranslation } from "@/lib/article-utils";
 import ArticleGrid from "@/components/ArticleGrid";
 
 function formatDate(dateStr: string | null): string {
@@ -24,6 +25,7 @@ export default function ArticleDetailPage() {
   const [similar, setSimilar] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showOriginal, setShowOriginal] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -97,9 +99,25 @@ export default function ArticleDetailPage() {
         </div>
 
         {/* Title */}
-        <h1 className="mb-6 font-display text-4xl font-bold leading-[1.15] tracking-tight text-ink text-balance lg:text-5xl">
-          {article.title}
-        </h1>
+        <div className="mb-6 flex items-start gap-2">
+          {hasTranslation(article) && (
+            <button
+              onClick={() => setShowOriginal((v) => !v)}
+              className="mt-1.5 shrink-0 text-accent transition-colors hover:text-accent/70"
+              title={showOriginal ? "Show English translation" : "Show original title"}
+              aria-label={showOriginal ? "Show English translation" : "Show original title"}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M2 12h20" />
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+              </svg>
+            </button>
+          )}
+          <h1 className="font-display text-4xl font-bold leading-[1.15] tracking-tight text-ink text-balance lg:text-5xl">
+            {showOriginal ? article.title : getDisplayTitle(article)}
+          </h1>
+        </div>
 
         {/* Authors */}
         {article.authors.length > 0 && (
@@ -115,7 +133,7 @@ export default function ArticleDetailPage() {
           <div className="relative mb-8 aspect-[16/10] overflow-hidden bg-warm">
             <Image
               src={article.cover_image_url}
-              alt={article.title}
+              alt={getDisplayTitle(article)}
               fill
               unoptimized
               className="object-cover"

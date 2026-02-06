@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { getArticles, ArticleListResponse } from "@/lib/api";
 import ArticleGrid from "@/components/ArticleGrid";
+import CategoryTabs from "@/components/CategoryTabs";
 import Pagination from "@/components/Pagination";
 
 export default function HomePage() {
@@ -10,6 +11,7 @@ export default function HomePage() {
   const [page, setPage] = useState(1);
   const [publisher, setPublisher] = useState("");
   const [language, setLanguage] = useState("");
+  const [category, setCategory] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [publishers, setPublishers] = useState<string[]>([]);
@@ -27,6 +29,7 @@ export default function HomePage() {
         page_size: pageSize,
         publisher: publisher || undefined,
         language: language || undefined,
+        category: category || undefined,
       });
       setData(result);
 
@@ -42,7 +45,7 @@ export default function HomePage() {
     } finally {
       setLoading(false);
     }
-  }, [page, publisher, language]);
+  }, [page, publisher, language, category]);
 
   useEffect(() => {
     fetchArticles();
@@ -111,6 +114,14 @@ export default function HomePage() {
           )}
         </div>
       </div>
+
+      <CategoryTabs
+        selected={category}
+        onChange={(c) => {
+          setCategory(c);
+          setPage(1);
+        }}
+      />
 
       <div className="rule-thick mb-8" />
 

@@ -4,17 +4,19 @@ export interface ArticleSummary {
   id: number;
   url: string;
   title: string;
+  title_en: string | null;
   authors: string[];
   topics: string[];
   publisher: string;
   language: string | null;
   publishing_date: string | null;
   cover_image_url: string | null;
+  dedup_cluster_id: number | null;
+  category: string | null;
 }
 
 export interface ArticleDetail extends ArticleSummary {
   body: string;
-  dedup_cluster_id: number | null;
 }
 
 export interface ArticleListResponse {
@@ -58,12 +60,14 @@ export async function getArticles(params?: {
   page_size?: number;
   publisher?: string;
   language?: string;
+  category?: string;
 }): Promise<ArticleListResponse> {
   const query: Record<string, string> = {};
   if (params?.page) query.page = String(params.page);
   if (params?.page_size) query.page_size = String(params.page_size);
   if (params?.publisher) query.publisher = params.publisher;
   if (params?.language) query.language = params.language;
+  if (params?.category) query.category = params.category;
   return fetchApi<ArticleListResponse>("/articles", query);
 }
 

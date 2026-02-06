@@ -38,6 +38,8 @@ class Article(Base):
     cover_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     embedding = mapped_column(Vector(settings.embedding_dim), nullable=True)
     dedup_cluster_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    title_en: Mapped[str | None] = mapped_column(Text, nullable=True)
+    category: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
 
     __table_args__ = (
         Index("ix_articles_topics", "topics", postgresql_using="gin"),

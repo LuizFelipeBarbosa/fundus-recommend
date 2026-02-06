@@ -15,9 +15,10 @@ async def get_articles(
     publisher: str | None = None,
     language: str | None = None,
     topic: str | None = None,
+    category: str | None = None,
     session: AsyncSession = Depends(get_async_session),
 ):
-    articles, total = await list_articles(session, page, page_size, publisher, language, topic)
+    articles, total = await list_articles(session, page, page_size, publisher, language, topic, category)
     return ArticleListResponse(
         items=[ArticleSummary.model_validate(a) for a in articles],
         total=total,

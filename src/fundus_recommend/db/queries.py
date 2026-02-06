@@ -22,6 +22,7 @@ async def list_articles(
     publisher: str | None = None,
     language: str | None = None,
     topic: str | None = None,
+    category: str | None = None,
 ) -> tuple[list[Article], int]:
     query = select(Article)
     count_query = select(func.count(Article.id))
@@ -35,6 +36,9 @@ async def list_articles(
     if topic:
         query = query.where(Article.topics.any(topic))
         count_query = count_query.where(Article.topics.any(topic))
+    if category:
+        query = query.where(Article.category == category)
+        count_query = count_query.where(Article.category == category)
 
     total = (await session.execute(count_query)).scalar_one()
 

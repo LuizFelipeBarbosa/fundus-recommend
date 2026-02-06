@@ -7,19 +7,21 @@ class ArticleSummary(BaseModel):
     id: int
     url: str
     title: str
+    title_en: str | None
     authors: list[str]
     topics: list[str]
     publisher: str
     language: str | None
     publishing_date: datetime | None
     cover_image_url: str | None
+    dedup_cluster_id: int | None
+    category: str | None
 
     model_config = {"from_attributes": True}
 
 
 class ArticleDetail(ArticleSummary):
     body: str
-    dedup_cluster_id: int | None
 
     model_config = {"from_attributes": True}
 
