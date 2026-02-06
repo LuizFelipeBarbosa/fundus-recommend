@@ -1,8 +1,11 @@
+import numpy as np
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fundus_recommend.models.db import Article, User, UserPreference
+from fundus_recommend.config import settings
+from fundus_recommend.models.db import Article, ArticleView, User, UserPreference
 from fundus_recommend.services.embeddings import embed_single
+from fundus_recommend.services.ranking import RankingWeights, composite_scores, mmr_rerank
 
 
 async def get_article_count(session: AsyncSession) -> int:
@@ -130,3 +133,78 @@ async def set_user_preferences(
 async def get_user_preferences(session: AsyncSession, user_id: str) -> list[UserPreference]:
     result = await session.execute(select(UserPreference).where(UserPreference.user_id == user_id))
     return list(result.scalars().all())
+
+
+async def record_article_view(session: AsyncSession, article_id: int, session_id: str) -> None:
+    view = ArticleView(article_id=article_id, session_id=session_id)
+    session.add(view)
+    await session.commit()
+
+
+async def get_view_counts(session: AsyncSession) -> dict[int, int]:
+    result = await session.execute(
+        select(ArticleView.article_id, func.count(ArticleView.id)).group_by(ArticleView.article_id)
+    )
+    return dict(result.all())
+
+
+async def get_ranked_articles(
+    session: AsyncSession,
+    page: int = 1,
+    page_size: int = 20,
+    publisher: str | None = None,
+    language: str | None = None,
+    topic: str | None = None,
+    category: str | None = None,
+) -> tuple[list[Article], int]:
+    query = select(Article).where(Article.embedding.is_not(None))
+    count_query = select(func.count(Article.id)).where(Article.embedding.is_not(None))
+
+    if publisher:
+        query = query.where(Article.publisher == publisher)
+        count_query = count_query.where(Article.publisher == publisher)
+    if language:
+        query = query.where(Article.language == language)
+        count_query = count_query.where(Article.language == language)
+    if topic:
+        query = query.where(Article.topics.any(topic))
+        count_query = count_query.where(Article.topics.any(topic))
+    if category:
+        query = query.where(Article.category == category)
+        count_query = count_query.where(Article.category == category)
+
+    total = (await session.execute(count_query)).scalar_one()
+    result = await session.execute(query)
+    articles = list(result.scalars().all())
+
+    if not articles:
+        return [], total
+
+    view_counts = await get_view_counts(session)
+
+    dates = [a.publishing_date for a in articles]
+    views = [view_counts.get(a.id, 0) for a in articles]
+    embeddings = np.array([a.embedding for a in articles])
+    cluster_ids = [a.dedup_cluster_id for a in articles]
+
+    # Compute cluster sizes: how many articles share each dedup_cluster_id
+    cluster_size_map: dict[int, int] = {}
+    for cid in cluster_ids:
+        if cid is not None:
+            cluster_size_map[cid] = cluster_size_map.get(cid, 0) + 1
+    cluster_sizes = [cluster_size_map.get(cid, 1) if cid is not None else 1 for cid in cluster_ids]
+
+    weights = RankingWeights(
+        recency=settings.ranking_recency_weight,
+        engagement=settings.ranking_engagement_weight,
+        source_count=settings.ranking_source_count_weight,
+        diversity_lambda=settings.ranking_diversity_lambda,
+        half_life_hours=settings.ranking_recency_half_life_hours,
+    )
+
+    scores = composite_scores(dates, views, weights, cluster_sizes)
+    offset = (page - 1) * page_size
+    ranked_indices = mmr_rerank(scores, embeddings, page_size, offset, weights.diversity_lambda, cluster_ids)
+
+    ranked_articles = [articles[i] for i in ranked_indices]
+    return ranked_articles, total
