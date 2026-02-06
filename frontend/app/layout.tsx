@@ -3,7 +3,7 @@ import Navbar from "@/components/Navbar";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "The Fundus Record",
+  title: "Nexus | AI-Curated News",
   description: "AI-curated news intelligence, delivered with editorial precision",
 };
 

@@ -34,7 +34,7 @@ export default function ArticleCard({
     return (
       <Link href={`/articles/${article.id}`} className="group block">
         <article className="relative">
-          <div className="relative aspect-[16/10] overflow-hidden bg-warm">
+          <div className="relative aspect-[21/9] overflow-hidden bg-warm">
             {article.cover_image_url ? (
               <Image
                 src={article.cover_image_url}

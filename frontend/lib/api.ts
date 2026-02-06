@@ -61,6 +61,7 @@ export async function getArticles(params?: {
   publisher?: string;
   language?: string;
   category?: string;
+  sort?: "recent" | "ranked";
 }): Promise<ArticleListResponse> {
   const query: Record<string, string> = {};
   if (params?.page) query.page = String(params.page);
@@ -68,6 +69,7 @@ export async function getArticles(params?: {
   if (params?.publisher) query.publisher = params.publisher;
   if (params?.language) query.language = params.language;
   if (params?.category) query.category = params.category;
+  if (params?.sort) query.sort = params.sort;
   return fetchApi<ArticleListResponse>("/articles", query);
 }
 
@@ -97,4 +99,24 @@ export async function getFeed(userId: string, limit?: number): Promise<Recommend
   const query: Record<string, string> = {};
   if (limit) query.limit = String(limit);
   return fetchApi<RecommendationResponse>(`/feed/${userId}`, query);
+}
+
+export function getSessionId(): string {
+  const key = "fundus_session_id";
+  let id = localStorage.getItem(key);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(key, id);
+  }
+  return id;
+}
+
+export function trackView(articleId: number, sessionId: string): void {
+  fetch(`${API_BASE}/articles/${articleId}/view`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId }),
+  }).catch(() => {
+    // fire-and-forget — silently ignore errors
+  });
 }

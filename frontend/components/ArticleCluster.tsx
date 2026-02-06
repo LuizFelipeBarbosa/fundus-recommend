@@ -1,7 +1,12 @@
+"use client";
+
+import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { ArticleSummary } from "@/lib/api";
 import { getDisplayTitle } from "@/lib/article-utils";
+
+const SIMILAR_WEBSITES_LIMIT = 5;
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "";
@@ -51,7 +56,7 @@ function CompactEntry({ article }: { article: ArticleSummary }) {
             </>
           )}
         </div>
-        <h4 className="font-display text-[15px] font-bold leading-snug text-ink transition-colors group-hover:text-accent line-clamp-2">
+        <h4 className="font-display text-[15px] font-bold leading-snug text-ink transition-colors group-hover:text-accent line-clamp-1">
           {getDisplayTitle(article)}
         </h4>
         {article.authors.length > 0 && (
@@ -70,6 +75,11 @@ export default function ArticleCluster({
   articles: ArticleSummary[];
 }) {
   const { main, others } = pickMain(articles);
+  const [showAll, setShowAll] = useState(false);
+  
+  const hasMore = others.length > SIMILAR_WEBSITES_LIMIT;
+  const displayedOthers = showAll ? others : others.slice(0, SIMILAR_WEBSITES_LIMIT);
+  const hiddenCount = others.length - SIMILAR_WEBSITES_LIMIT;
 
   return (
     <div className="opacity-0 animate-fade-in">
@@ -113,7 +123,7 @@ export default function ArticleCluster({
                     </>
                   )}
                 </div>
-                <h3 className="mb-1.5 font-display text-lg font-bold leading-snug text-ink transition-colors group-hover:text-accent line-clamp-3">
+                <h3 className="mb-1.5 font-display text-lg font-bold leading-snug text-ink transition-colors group-hover:text-accent">
                   {getDisplayTitle(main)}
                 </h3>
                 {main.authors.length > 0 && (
@@ -131,12 +141,31 @@ export default function ArticleCluster({
 
         {/* Right column: compact stacked entries */}
         <div className="lg:flex-1 lg:pl-6">
-          {others.map((article, i) => (
+          {displayedOthers.map((article, i) => (
             <div key={article.id}>
               {i > 0 && <div className="h-px bg-rule" />}
               <CompactEntry article={article} />
             </div>
           ))}
+          
+          {/* Read more button */}
+          {hasMore && (
+            <div className="mt-4 border-t border-rule pt-4">
+              <button
+                onClick={() => setShowAll((v) => !v)}
+                className="group flex items-center gap-2 font-sans text-[11px] font-bold uppercase tracking-[0.15em] text-accent transition-colors hover:text-accent/70"
+              >
+                <span>{showAll ? "Show less" : `Read more (${hiddenCount} more)`}</span>
+                <svg
+                  className={`h-3 w-3 transition-transform ${showAll ? "rotate-180" : ""}`}
+                  viewBox="0 0 10 10"
+                  fill="currentColor"
+                >
+                  <path d="M2 4l3 3 3-3" />
+                </svg>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

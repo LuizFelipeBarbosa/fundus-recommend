@@ -97,14 +97,14 @@ export default function ArticleGrid({
       {/* Featured article */}
       {featured && (
         <>
-          <div className="mb-8">
+          <div className="mb-6">
             <ArticleCard
               article={featured}
               score={scores?.get(featured.id)}
               featured
             />
           </div>
-          <div className="rule-thick mb-6" />
+          <div className="rule mb-6" />
         </>
       )}
 

@@ -69,3 +69,17 @@ class UserPreference(Base):
     user: Mapped["User"] = relationship(back_populates="preferences")
 
     __table_args__ = (UniqueConstraint("user_id", "topic", name="uq_user_topic"),)
+
+
+class ArticleView(Base):
+    __tablename__ = "article_views"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    article_id: Mapped[int] = mapped_column(Integer, ForeignKey("articles.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    viewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_article_views_article_id", "article_id"),
+        Index("ix_article_views_viewed_at", "viewed_at"),
+    )

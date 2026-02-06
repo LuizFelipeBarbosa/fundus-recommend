@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
-import { getArticle, getRecommendations, ArticleDetail, SearchResult } from "@/lib/api";
+import { getArticle, getRecommendations, getSessionId, trackView, ArticleDetail, SearchResult } from "@/lib/api";
 import { getDisplayTitle, hasTranslation } from "@/lib/article-utils";
 import ArticleGrid from "@/components/ArticleGrid";
 
@@ -40,6 +40,7 @@ export default function ArticleDetailPage() {
         ]);
         setArticle(articleData);
         setSimilar(recsData.results);
+        trackView(id, getSessionId());
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load article");
       } finally {
