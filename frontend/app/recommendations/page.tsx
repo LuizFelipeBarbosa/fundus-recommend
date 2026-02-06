@@ -33,49 +33,74 @@ export default function RecommendationsPage() {
   const scores = new Map(results.map((r) => [r.article.id, r.score]));
 
   return (
-    <div>
-      <h1 className="mb-6 text-2xl font-bold text-gray-900">Topic Recommendations</h1>
+    <div className="pt-8">
+      {/* Header */}
+      <div className="mb-8 text-center">
+        <h2 className="font-display text-3xl font-bold italic text-ink">For You</h2>
+        <p className="mt-1 font-sans text-[11px] uppercase tracking-[0.3em] text-ink-muted">
+          Topic-driven recommendations &middot; Curated by AI
+        </p>
+      </div>
 
-      <div className="mb-8 flex justify-center">
+      <div className="rule mb-8" />
+
+      {/* Topic input */}
+      <div className="mb-10 flex justify-center">
         <form onSubmit={handleSubmit} className="w-full max-w-2xl">
           <div className="relative">
             <input
               type="text"
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
-              placeholder="Enter a topic (e.g., climate change, technology, sports)"
-              className="w-full rounded-lg border border-gray-300 bg-white py-3 pl-4 pr-28 text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              placeholder="Enter a topic &mdash; e.g., climate policy, AI regulation, space exploration"
+              className="w-full border-b-2 border-rule bg-transparent py-3.5 pl-0 pr-24 font-body text-base text-ink placeholder-ink-muted/50 transition-colors focus:border-accent focus:outline-none"
             />
             <button
               type="submit"
               disabled={loading}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md bg-blue-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+              className="absolute right-0 top-1/2 -translate-y-1/2 font-sans text-[10px] font-bold uppercase tracking-[0.2em] text-accent transition-opacity hover:opacity-70 disabled:opacity-40"
             >
-              {loading ? "Loading..." : "Get Recs"}
+              {loading ? "Loading..." : "Recommend"}
             </button>
           </div>
         </form>
       </div>
 
+      {loading && (
+        <div className="flex flex-col items-center justify-center py-24">
+          <div className="mb-4 font-display text-lg italic text-ink-muted">
+            Curating recommendations...
+          </div>
+          <div className="h-px w-32 origin-left animate-rule-draw bg-accent" />
+        </div>
+      )}
+
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">
-          {error}
+        <div className="border-l-[3px] border-accent bg-accent-light px-6 py-4">
+          <p className="font-sans text-xs font-bold uppercase tracking-[0.15em] text-accent">Error</p>
+          <p className="mt-1 font-body text-sm text-ink-light">{error}</p>
         </div>
       )}
 
       {!loading && !error && searched && (
         <>
-          <p className="mb-4 text-sm text-gray-500">
-            {results.length} recommendation{results.length !== 1 ? "s" : ""} for &quot;{currentTopic}&quot;
-          </p>
+          <div className="mb-6 flex items-center gap-3">
+            <div className="rule-accent w-8" />
+            <p className="font-sans text-[11px] uppercase tracking-[0.2em] text-ink-muted">
+              {results.length} recommendation{results.length !== 1 ? "s" : ""} for &ldquo;{currentTopic}&rdquo;
+            </p>
+          </div>
           <ArticleGrid articles={results.map((r) => r.article)} scores={scores} />
         </>
       )}
 
       {!loading && !error && !searched && (
-        <p className="py-12 text-center text-gray-500">
-          Enter a topic to get AI-powered article recommendations.
-        </p>
+        <div className="py-16 text-center">
+          <p className="font-display text-xl italic text-ink-muted">
+            Tell us what interests you. We&apos;ll find the stories that matter.
+          </p>
+          <div className="mx-auto mt-6 h-px w-24 bg-rule" />
+        </div>
       )}
     </div>
   );

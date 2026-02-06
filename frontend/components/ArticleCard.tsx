@@ -5,8 +5,8 @@ import { ArticleSummary } from "@/lib/api";
 function Placeholder({ publisher }: { publisher: string }) {
   const initial = publisher.charAt(0).toUpperCase();
   return (
-    <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-blue-500 to-indigo-600">
-      <span className="text-4xl font-bold text-white">{initial}</span>
+    <div className="flex h-full w-full items-center justify-center bg-warm">
+      <span className="font-display text-5xl font-bold italic text-rule-dark/60">{initial}</span>
     </div>
   );
 }
@@ -14,67 +14,138 @@ function Placeholder({ publisher }: { publisher: string }) {
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "";
   return new Date(dateStr).toLocaleDateString("en-US", {
-    year: "numeric",
     month: "short",
     day: "numeric",
+    year: "numeric",
   });
 }
 
-export default function ArticleCard({ article, score }: { article: ArticleSummary; score?: number }) {
+export default function ArticleCard({
+  article,
+  score,
+  featured = false,
+}: {
+  article: ArticleSummary;
+  score?: number;
+  featured?: boolean;
+}) {
+  if (featured) {
+    return (
+      <Link href={`/articles/${article.id}`} className="group block">
+        <article className="relative">
+          <div className="relative aspect-[16/10] overflow-hidden bg-warm">
+            {article.cover_image_url ? (
+              <Image
+                src={article.cover_image_url}
+                alt={article.title}
+                fill
+                unoptimized
+                className="object-cover transition-transform duration-700 group-hover:scale-[1.03]"
+              />
+            ) : (
+              <Placeholder publisher={article.publisher} />
+            )}
+            {/* Gradient overlay */}
+            <div className="absolute inset-0 bg-gradient-to-t from-ink/70 via-ink/20 to-transparent" />
+
+            {/* Content overlay */}
+            <div className="absolute bottom-0 left-0 right-0 p-6">
+              {score !== undefined && (
+                <span className="mb-3 inline-block bg-accent px-2 py-0.5 font-sans text-[10px] font-bold uppercase tracking-widest text-white">
+                  {(score * 100).toFixed(0)}% Match
+                </span>
+              )}
+              <div className="mb-2 flex items-center gap-3">
+                <span className="font-sans text-[10px] font-bold uppercase tracking-[0.2em] text-white/80">
+                  {article.publisher}
+                </span>
+                {article.publishing_date && (
+                  <>
+                    <span className="text-white/40">&middot;</span>
+                    <span className="font-sans text-[10px] tracking-wider text-white/60">
+                      {formatDate(article.publishing_date)}
+                    </span>
+                  </>
+                )}
+              </div>
+              <h2 className="font-display text-2xl font-bold leading-tight text-white text-balance">
+                {article.title}
+              </h2>
+              {article.authors.length > 0 && (
+                <p className="mt-2 font-sans text-xs italic text-white/70">
+                  By {article.authors.join(", ")}
+                </p>
+              )}
+            </div>
+          </div>
+        </article>
+      </Link>
+    );
+  }
+
   return (
     <Link href={`/articles/${article.id}`} className="group block">
-      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md">
-        <div className="relative aspect-video overflow-hidden bg-gray-100">
+      <article className="h-full">
+        {/* Image */}
+        <div className="relative aspect-[16/10] overflow-hidden bg-warm">
           {article.cover_image_url ? (
             <Image
               src={article.cover_image_url}
               alt={article.title}
               fill
               unoptimized
-              className="object-cover transition-transform group-hover:scale-105"
+              className="object-cover transition-transform duration-700 group-hover:scale-[1.03]"
             />
           ) : (
             <Placeholder publisher={article.publisher} />
           )}
           {score !== undefined && (
-            <span className="absolute right-2 top-2 rounded-full bg-blue-600 px-2.5 py-0.5 text-xs font-semibold text-white">
+            <span className="absolute right-3 top-3 bg-accent px-2 py-0.5 font-sans text-[10px] font-bold uppercase tracking-wider text-white">
               {(score * 100).toFixed(0)}%
             </span>
           )}
         </div>
 
-        <div className="p-4">
-          <div className="mb-2 flex items-center gap-2">
-            <span className="rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
+        {/* Content */}
+        <div className="pt-3">
+          <div className="mb-1.5 flex items-center gap-2">
+            <span className="font-sans text-[10px] font-bold uppercase tracking-[0.15em] text-accent">
               {article.publisher}
             </span>
             {article.publishing_date && (
-              <span className="text-xs text-gray-500">{formatDate(article.publishing_date)}</span>
+              <>
+                <span className="text-rule-dark text-[10px]">/</span>
+                <span className="font-sans text-[10px] tracking-wider text-ink-muted">
+                  {formatDate(article.publishing_date)}
+                </span>
+              </>
             )}
           </div>
 
-          <h3 className="mb-2 line-clamp-2 text-sm font-semibold text-gray-900 group-hover:text-blue-600">
+          <h3 className="mb-1.5 font-display text-lg font-bold leading-snug text-ink transition-colors group-hover:text-accent line-clamp-3">
             {article.title}
           </h3>
 
           {article.authors.length > 0 && (
-            <p className="mb-2 text-xs text-gray-500">{article.authors.join(", ")}</p>
+            <p className="mb-2 font-sans text-xs italic text-ink-muted">
+              {article.authors.join(", ")}
+            </p>
           )}
 
           {article.topics.length > 0 && (
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-x-2 gap-y-1">
               {article.topics.slice(0, 3).map((topic) => (
-                <span key={topic} className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
+                <span
+                  key={topic}
+                  className="font-sans text-[10px] uppercase tracking-wider text-ink-muted"
+                >
                   {topic}
                 </span>
               ))}
-              {article.topics.length > 3 && (
-                <span className="text-xs text-gray-400">+{article.topics.length - 3}</span>
-              )}
             </div>
           )}
         </div>
-      </div>
+      </article>
     </Link>
   );
 }

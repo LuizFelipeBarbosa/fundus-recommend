@@ -9,8 +9,46 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: "var(--background)",
-        foreground: "var(--foreground)",
+        cream: "#FAF7F2",
+        ink: "#1A1A1A",
+        "ink-light": "#4A4A4A",
+        "ink-muted": "#8A8A8A",
+        rule: "#D4CFC7",
+        "rule-dark": "#B8B2A8",
+        accent: "#C41E1E",
+        "accent-dark": "#9A1616",
+        "accent-light": "#F8EDED",
+        warm: "#F0EBE3",
+      },
+      fontFamily: {
+        display: ['"Playfair Display"', "Georgia", "serif"],
+        body: ['"Source Serif 4"', "Georgia", "serif"],
+        sans: ['"DM Sans"', "system-ui", "sans-serif"],
+        mono: ['"JetBrains Mono"', "monospace"],
+      },
+      animation: {
+        "fade-in": "fadeIn 0.6s ease-out forwards",
+        "fade-up": "fadeUp 0.6s ease-out forwards",
+        "slide-in": "slideIn 0.4s ease-out forwards",
+        "rule-draw": "ruleDraw 0.8s ease-out forwards",
+      },
+      keyframes: {
+        fadeIn: {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
+        fadeUp: {
+          "0%": { opacity: "0", transform: "translateY(12px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        slideIn: {
+          "0%": { opacity: "0", transform: "translateX(-8px)" },
+          "100%": { opacity: "1", transform: "translateX(0)" },
+        },
+        ruleDraw: {
+          "0%": { transform: "scaleX(0)" },
+          "100%": { transform: "scaleX(1)" },
+        },
       },
     },
   },

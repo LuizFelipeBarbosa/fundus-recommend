@@ -58,49 +58,81 @@ export default function HomePage() {
   const totalPages = data ? Math.ceil(data.total / pageSize) : 0;
 
   return (
-    <div>
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold text-gray-900">Latest Articles</h1>
-        <div className="flex gap-3">
+    <div className="pt-8">
+      {/* Section header */}
+      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h2 className="font-display text-3xl font-bold italic text-ink">Today&apos;s Edition</h2>
+          <p className="mt-1 font-sans text-xs uppercase tracking-[0.2em] text-ink-muted">
+            {data ? `${data.total} articles in the archive` : "Loading..."}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-4">
           {publishers.length > 0 && (
-            <select
-              value={publisher}
-              onChange={handleFilterChange(setPublisher)}
-              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none"
-            >
-              <option value="">All Publishers</option>
-              {publishers.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
+            <div className="relative">
+              <label className="absolute -top-4 left-0 font-sans text-[9px] font-bold uppercase tracking-[0.2em] text-ink-muted">
+                Source
+              </label>
+              <select
+                value={publisher}
+                onChange={handleFilterChange(setPublisher)}
+                className="appearance-none border-b-2 border-rule bg-transparent py-1.5 pr-6 font-sans text-xs text-ink focus:border-accent focus:outline-none"
+              >
+                <option value="">All Sources</option>
+                {publishers.map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+              <span className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-ink-muted">
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M2 4l3 3 3-3" /></svg>
+              </span>
+            </div>
           )}
           {languages.length > 0 && (
-            <select
-              value={language}
-              onChange={handleFilterChange(setLanguage)}
-              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:border-blue-500 focus:outline-none"
-            >
-              <option value="">All Languages</option>
-              {languages.map((l) => (
-                <option key={l} value={l}>{l}</option>
-              ))}
-            </select>
+            <div className="relative">
+              <label className="absolute -top-4 left-0 font-sans text-[9px] font-bold uppercase tracking-[0.2em] text-ink-muted">
+                Language
+              </label>
+              <select
+                value={language}
+                onChange={handleFilterChange(setLanguage)}
+                className="appearance-none border-b-2 border-rule bg-transparent py-1.5 pr-6 font-sans text-xs text-ink focus:border-accent focus:outline-none"
+              >
+                <option value="">All</option>
+                {languages.map((l) => (
+                  <option key={l} value={l}>{l}</option>
+                ))}
+              </select>
+              <span className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-ink-muted">
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M2 4l3 3 3-3" /></svg>
+              </span>
+            </div>
           )}
         </div>
       </div>
 
+      <div className="rule-thick mb-8" />
+
+      {/* Loading state */}
       {loading && (
-        <div className="flex items-center justify-center py-20">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+        <div className="flex flex-col items-center justify-center py-24">
+          <div className="mb-4 font-display text-lg italic text-ink-muted">
+            Composing the edition...
+          </div>
+          <div className="h-px w-32 origin-left animate-rule-draw bg-accent" />
         </div>
       )}
 
+      {/* Error state */}
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">
-          {error}
+        <div className="border-l-[3px] border-accent bg-accent-light px-6 py-4">
+          <p className="font-sans text-xs font-bold uppercase tracking-[0.15em] text-accent">Error</p>
+          <p className="mt-1 font-body text-sm text-ink-light">{error}</p>
         </div>
       )}
 
+      {/* Content */}
       {!loading && !error && data && (
         <>
           <ArticleGrid articles={data.items} />
