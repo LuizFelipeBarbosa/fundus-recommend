@@ -1,0 +1,149 @@
+services:
+  - type: web
+    name: fundus-api
+    runtime: python
+    rootDir: .
+    plan: standard
+    buildCommand: pip install -U pip && pip install .
+    preDeployCommand: alembic upgrade head
+    startCommand: uvicorn fundus_recommend.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_URL_SYNC
+        sync: false
+      - key: CORS_ALLOW_ORIGINS
+        sync: false
+      - key: EMBEDDING_MODEL
+        value: all-MiniLM-L6-v2
+      - key: EMBEDDING_DIM
+        value: "384"
+      - key: DEDUP_THRESHOLD
+        value: "0.92"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+  - type: worker
+    name: fundus-worker-a
+    runtime: python
+    rootDir: .
+    plan: standard
+    buildCommand: pip install -U pip && pip install .
+    startCommand: >-
+      fr-schedule --publishers ar,at,au,bd,be,br,ca,ch,cl,cn,co,cz,de,dk,eg,es
+      --interval 10 --max-articles 25 --batch-size 64 --skip-dedup --skip-refresh
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_URL_SYNC
+        sync: false
+      - key: EMBEDDING_MODEL
+        value: all-MiniLM-L6-v2
+      - key: EMBEDDING_DIM
+        value: "384"
+      - key: DEDUP_THRESHOLD
+        value: "0.92"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+  - type: worker
+    name: fundus-worker-b
+    runtime: python
+    rootDir: .
+    plan: standard
+    buildCommand: pip install -U pip && pip install .
+    startCommand: >-
+      fr-schedule --publishers fi,fr,gl,gr,hk,hu,id,ie,il,ind,intl,isl,it,jp,ke,kr
+      --interval 10 --max-articles 25 --batch-size 64 --skip-dedup --skip-refresh
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_URL_SYNC
+        sync: false
+      - key: EMBEDDING_MODEL
+        value: all-MiniLM-L6-v2
+      - key: EMBEDDING_DIM
+        value: "384"
+      - key: DEDUP_THRESHOLD
+        value: "0.92"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+  - type: worker
+    name: fundus-worker-c
+    runtime: python
+    rootDir: .
+    plan: standard
+    buildCommand: pip install -U pip && pip install .
+    startCommand: >-
+      fr-schedule --publishers lb,li,ls,lt,lu,mx,my,na,ng,nl,no,nz,ph,pk,pl,pt
+      --interval 10 --max-articles 25 --batch-size 64 --skip-dedup --skip-refresh
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_URL_SYNC
+        sync: false
+      - key: EMBEDDING_MODEL
+        value: all-MiniLM-L6-v2
+      - key: EMBEDDING_DIM
+        value: "384"
+      - key: DEDUP_THRESHOLD
+        value: "0.92"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+  - type: worker
+    name: fundus-worker-d
+    runtime: python
+    rootDir: .
+    plan: standard
+    buildCommand: pip install -U pip && pip install .
+    startCommand: >-
+      fr-schedule --publishers py,ro,ru,sa,se,sg,th,tr,tw,tz,ua,uk,us,ve,vn,za
+      --interval 10 --max-articles 25 --batch-size 64 --skip-dedup --skip-refresh
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_URL_SYNC
+        sync: false
+      - key: EMBEDDING_MODEL
+        value: all-MiniLM-L6-v2
+      - key: EMBEDDING_DIM
+        value: "384"
+      - key: DEDUP_THRESHOLD
+        value: "0.92"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+  - type: cron
+    name: fundus-maintenance
+    runtime: python
+    rootDir: .
+    plan: standard
+    schedule: "0 3 * * *"
+    buildCommand: pip install -U pip && pip install .
+    startCommand: fr-schedule --publishers us,uk,ca --max-articles 1 --run-once --run-dedup --run-refresh
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_URL_SYNC
+        sync: false
+      - key: EMBEDDING_MODEL
+        value: all-MiniLM-L6-v2
+      - key: EMBEDDING_DIM
+        value: "384"
+      - key: DEDUP_THRESHOLD
+        value: "0.92"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+  - type: web
+    name: fundus-frontend
+    runtime: node
+    rootDir: frontend
+    plan: standard
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start -- -p $PORT
+    envVars:
+      - key: NEXT_PUBLIC_API_BASE
+        sync: false
