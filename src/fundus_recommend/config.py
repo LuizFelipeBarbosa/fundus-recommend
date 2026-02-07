@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     ranking_engagement_weight: float = 0.05
     ranking_diversity_lambda: float = 0.3
     ranking_recency_half_life_hours: float = 48.0
+    cors_origins: str = "http://localhost:3000"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

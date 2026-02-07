@@ -1,3 +1,4 @@
+import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -8,6 +9,10 @@ from fundus_recommend.models.db import Base
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+# Use DATABASE_URL_SYNC env var if set (for containerized deployments)
+if os.environ.get("DATABASE_URL_SYNC"):
+    config.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL_SYNC"])
 
 target_metadata = Base.metadata
 
