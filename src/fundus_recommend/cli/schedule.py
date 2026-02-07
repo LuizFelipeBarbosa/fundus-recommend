@@ -182,14 +182,7 @@ def run_dedup_pass() -> int:
         return run_dedup(session)
 
 
-def run_cycle(
-    publishers: list[str],
-    max_articles: int,
-    language: str | None,
-    batch_size: int,
-    skip_dedup: bool,
-    skip_refresh: bool,
-) -> None:
+def run_cycle(publishers: list[str], max_articles: int, language: str | None, batch_size: int) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     click.echo(f"\n[{now}] Starting crawl cycle...")
 
@@ -199,47 +192,28 @@ def run_cycle(
     total_embedded = 0
 
     for code in publishers:
-        try:
-            new_ids = crawl_articles(code, max_articles, language)
-            total_inserted += len(new_ids)
+        new_ids = crawl_articles(code, max_articles, language)
+        total_inserted += len(new_ids)
 
-            if new_ids:
-                translated = translate_new_articles(new_ids)
-                total_translated += translated
+        if new_ids:
+            translated = translate_new_articles(new_ids)
+            total_translated += translated
 
-                categorized = categorize_new_articles(new_ids)
-                total_categorized += categorized
+            categorized = categorize_new_articles(new_ids)
+            total_categorized += categorized
 
-                embedded = embed_new_articles(new_ids, batch_size)
-                total_embedded += embedded
-        except Exception as exc:
-            click.echo(f"  Error processing '{code}': {exc}", err=True)
+            embedded = embed_new_articles(new_ids, batch_size)
+            total_embedded += embedded
 
-    click.echo(
-        f"  Totals: {total_inserted} crawled, {total_translated} translated, "
-        f"{total_categorized} categorized, {total_embedded} embedded"
-    )
+    click.echo(f"  Totals: {total_inserted} crawled, {total_translated} translated, "
+               f"{total_categorized} categorized, {total_embedded} embedded")
 
-    if skip_dedup:
-        click.echo("  Dedup: skipped")
-    else:
-        try:
-            clustered = run_dedup_pass()
-            click.echo(f"  Dedup: {clustered} articles in clusters")
-        except Exception as exc:
-            click.echo(f"  Dedup failed: {exc}", err=True)
+    clustered = run_dedup_pass()
+    click.echo(f"  Dedup: {clustered} articles in clusters")
 
-    if skip_refresh:
-        click.echo("  Embedding refresh: skipped")
-    else:
-        try:
-            refreshed = refresh_stale_embeddings(max_age_days=7, batch_size=batch_size)
-            if refreshed:
-                click.echo(f"  Refreshed {refreshed} stale embeddings")
-            else:
-                click.echo("  Embedding refresh: no stale rows")
-        except Exception as exc:
-            click.echo(f"  Embedding refresh failed: {exc}", err=True)
+    refreshed = refresh_stale_embeddings(max_age_days=7, batch_size=batch_size)
+    if refreshed:
+        click.echo(f"  Refreshed {refreshed} stale embeddings")
 
     click.echo(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Cycle complete.")
 
@@ -255,39 +229,15 @@ def run_cycle(
 @click.option("-l", "--language", default=None, help="Filter by language (e.g. en); omit for all languages")
 @click.option("--interval", default=10, help="Minutes between crawl cycles")
 @click.option("--batch-size", default=64, help="Embedding batch size")
-@click.option(
-    "--skip-dedup/--run-dedup",
-    default=True,
-    show_default=True,
-    help="Skip or run dedup at the end of each cycle",
-)
-@click.option(
-    "--skip-refresh/--run-refresh",
-    default=True,
-    show_default=True,
-    help="Skip or run stale embedding refresh at the end of each cycle",
-)
 @click.option("--run-once", is_flag=True, help="Run a single cycle then exit")
-def main(
-    publishers: str,
-    max_articles: int,
-    language: str | None,
-    interval: int,
-    batch_size: int,
-    skip_dedup: bool,
-    skip_refresh: bool,
-    run_once: bool,
-) -> None:
+def main(publishers: str, max_articles: int, language: str | None, interval: int, batch_size: int, run_once: bool) -> None:
     """Scheduled crawl + embed + dedup loop."""
     Base.metadata.create_all(sync_engine)
 
     pub_list = [c.strip().lower() for c in publishers.split(",")]
-    click.echo(
-        f"Scheduler: publishers={pub_list}, max_articles={max_articles}, interval={interval}min, "
-        f"skip_dedup={skip_dedup}, skip_refresh={skip_refresh}"
-    )
+    click.echo(f"Scheduler: publishers={pub_list}, max_articles={max_articles}, interval={interval}min")
 
-    run_cycle(pub_list, max_articles, language, batch_size, skip_dedup, skip_refresh)
+    run_cycle(pub_list, max_articles, language, batch_size)
 
     if run_once:
         return
@@ -295,7 +245,7 @@ def main(
     while True:
         click.echo(f"\nSleeping {interval} minutes until next cycle...")
         time.sleep(interval * 60)
-        run_cycle(pub_list, max_articles, language, batch_size, skip_dedup, skip_refresh)
+        run_cycle(pub_list, max_articles, language, batch_size)
 
 
 if __name__ == "__main__":

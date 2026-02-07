@@ -4,7 +4,6 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://fundus:fundus@localhost:5432/fundus_recommend"
     database_url_sync: str = "postgresql+psycopg2://fundus:fundus@localhost:5432/fundus_recommend"
-    cors_allow_origins: str = ""
     embedding_model: str = "all-MiniLM-L6-v2"
     embedding_dim: int = 384
     dedup_threshold: float = 0.50
