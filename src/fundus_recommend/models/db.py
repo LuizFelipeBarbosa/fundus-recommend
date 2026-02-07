@@ -37,6 +37,7 @@ class Article(Base):
     crawled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     cover_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     embedding = mapped_column(Vector(settings.embedding_dim), nullable=True)
+    embedded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     dedup_cluster_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     title_en: Mapped[str | None] = mapped_column(Text, nullable=True)
     category: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)

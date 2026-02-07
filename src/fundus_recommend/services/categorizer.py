@@ -95,14 +95,16 @@ CATEGORY_KEYWORDS: dict[str, dict[str, list[str]]] = {
 CATEGORY_PRIORITY = ["US", "Global", "Business", "Technology", "Arts", "Sports", "Entertainment"]
 
 
-def assign_category(topics: list[str], title: str, body_snippet: str = "") -> str | None:
+def assign_category(topics: list[str], title: str, body_snippet: str = "", title_en: str | None = None) -> str:
     """Assign a category based on topics, title, and body text using keyword matching.
 
     Checks topics first (substring match), then scans title + body for keywords.
-    Returns the highest-priority matching category, or None if no match.
+    Uses title_en (English translation) for keyword matching when available.
+    Returns the highest-priority matching category, or "General" if no match.
     """
     topics_lower = [t.lower() for t in topics]
-    text_lower = f"{title} {body_snippet}".lower()
+    match_title = title_en or title
+    text_lower = f"{match_title} {title} {body_snippet}".lower()
 
     scores: dict[str, int] = {}
 
@@ -126,7 +128,7 @@ def assign_category(topics: list[str], title: str, body_snippet: str = "") -> st
             scores[category] = score
 
     if not scores:
-        return None
+        return "General"
 
     # Return the category with the highest score; break ties by priority order
     return max(CATEGORY_PRIORITY, key=lambda c: scores.get(c, 0))

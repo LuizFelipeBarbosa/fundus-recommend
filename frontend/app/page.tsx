@@ -16,12 +16,15 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [publishers, setPublishers] = useState<string[]>([]);
   const [languages, setLanguages] = useState<string[]>([]);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const filtersPopulated = useRef(false);
 
   const pageSize = 20;
 
-  const fetchArticles = useCallback(async () => {
-    setLoading(true);
+  const fetchArticles = useCallback(async (isPolling = false) => {
+    if (!isPolling) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const result = await getArticles({
@@ -32,6 +35,7 @@ export default function HomePage() {
         category: category || undefined,
       });
       setData(result);
+      setLastUpdated(new Date());
 
       if (!filtersPopulated.current && result.items.length > 0) {
         const allPublishers = Array.from(new Set(result.items.map((a) => a.publisher))).sort();
@@ -43,12 +47,20 @@ export default function HomePage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch articles");
     } finally {
-      setLoading(false);
+      if (!isPolling) {
+        setLoading(false);
+      }
     }
   }, [page, publisher, language, category]);
 
   useEffect(() => {
     fetchArticles();
+
+    const interval = setInterval(() => {
+      fetchArticles(true);
+    }, 60_000);
+
+    return () => clearInterval(interval);
   }, [fetchArticles]);
 
   function handleFilterChange(setter: (v: string) => void) {
@@ -68,6 +80,11 @@ export default function HomePage() {
           <h2 className="font-display text-3xl font-bold italic text-ink">Today&apos;s Edition</h2>
           <p className="mt-1 font-sans text-xs uppercase tracking-[0.2em] text-ink-muted">
             {data ? `${data.total} articles in the archive` : "Loading..."}
+            {lastUpdated && (
+              <span className="ml-3 normal-case tracking-normal text-ink-muted/60">
+                Updated {lastUpdated.toLocaleTimeString()}
+              </span>
+            )}
           </p>
         </div>
 

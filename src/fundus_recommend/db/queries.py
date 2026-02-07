@@ -1,6 +1,7 @@
 import numpy as np
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 
 from fundus_recommend.config import settings
 from fundus_recommend.models.db import Article, ArticleView, User, UserPreference
@@ -28,7 +29,7 @@ async def list_articles(
     topic: str | None = None,
     category: str | None = None,
 ) -> tuple[list[Article], int]:
-    query = select(Article)
+    query = select(Article).options(defer(Article.body), defer(Article.embedding))
     count_query = select(func.count(Article.id))
 
     if publisher:
@@ -157,8 +158,9 @@ async def get_ranked_articles(
     language: str | None = None,
     topic: str | None = None,
     category: str | None = None,
+    candidate_limit: int = 200,
 ) -> tuple[list[Article], int]:
-    query = select(Article).where(Article.embedding.is_not(None))
+    query = select(Article).options(defer(Article.body), defer(Article.embedding)).where(Article.embedding.is_not(None))
     count_query = select(func.count(Article.id)).where(Article.embedding.is_not(None))
 
     if publisher:
@@ -175,6 +177,11 @@ async def get_ranked_articles(
         count_query = count_query.where(Article.category == category)
 
     total = (await session.execute(count_query)).scalar_one()
+
+    # Fetch only the most recent candidates — freshness-weighted ranking makes
+    # older articles score near-zero anyway (48h half-life), so loading all rows
+    # wastes bandwidth, especially with a remote database.
+    query = query.order_by(Article.publishing_date.desc().nulls_last()).limit(candidate_limit)
     result = await session.execute(query)
     articles = list(result.scalars().all())
 
@@ -185,7 +192,6 @@ async def get_ranked_articles(
 
     dates = [a.publishing_date for a in articles]
     views = [view_counts.get(a.id, 0) for a in articles]
-    embeddings = np.array([a.embedding for a in articles])
     cluster_ids = [a.dedup_cluster_id for a in articles]
 
     # Compute cluster sizes: how many articles share each dedup_cluster_id
@@ -207,8 +213,11 @@ async def get_ranked_articles(
     )
 
     scores = composite_scores(dates, views, weights, cluster_sizes, authorities)
-    offset = (page - 1) * page_size
-    ranked_indices = mmr_rerank(scores, embeddings, page_size, offset, weights.diversity_lambda, cluster_ids)
 
-    ranked_articles = [articles[i] for i in ranked_indices]
+    # Score-based ranking (avoids loading embeddings over the network for MMR)
+    offset = (page - 1) * page_size
+    ranked_indices = np.argsort(-scores).tolist()
+    page_indices = ranked_indices[offset : offset + page_size]
+
+    ranked_articles = [articles[i] for i in page_indices]
     return ranked_articles, total

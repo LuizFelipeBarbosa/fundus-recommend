@@ -1,11 +1,14 @@
+from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fundus_recommend.db.queries import get_article_by_id, get_ranked_articles, list_articles, record_article_view
 from fundus_recommend.db.session import get_async_session
+from fundus_recommend.models.db import Article
 from fundus_recommend.models.schemas import ArticleDetail, ArticleListResponse, ArticleSummary
 
 router = APIRouter(tags=["articles"])
@@ -32,6 +35,17 @@ async def get_articles(
         page=page,
         page_size=page_size,
     )
+
+
+class LatestTimestampResponse(BaseModel):
+    latest_crawled_at: datetime | None
+
+
+@router.get("/articles/latest-timestamp", response_model=LatestTimestampResponse)
+async def get_latest_timestamp(session: AsyncSession = Depends(get_async_session)):
+    result = await session.execute(select(func.max(Article.crawled_at)))
+    latest = result.scalar_one_or_none()
+    return LatestTimestampResponse(latest_crawled_at=latest)
 
 
 @router.get("/articles/{article_id}", response_model=ArticleDetail)

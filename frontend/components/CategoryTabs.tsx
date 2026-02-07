@@ -9,6 +9,7 @@ const CATEGORIES = [
   { value: "Arts", label: "Arts" },
   { value: "Sports", label: "Sports" },
   { value: "Entertainment", label: "Entertainment" },
+  { value: "General", label: "General" },
 ];
 
 interface CategoryTabsProps {
