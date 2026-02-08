@@ -28,6 +28,7 @@ dependencies = [
 fr-crawl = "fundus_recommend.cli.crawl:main"
 fr-embed = "fundus_recommend.cli.embed:main"
 fr-schedule = "fundus_recommend.cli.schedule:main"
+fr-classify = "fundus_recommend.cli.classify:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

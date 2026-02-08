@@ -90,7 +90,7 @@ def categorize_new_articles(article_ids: list[int]) -> int:
 
     with SyncSessionLocal() as session:
         stmt = (
-            select(Article.id, Article.topics, Article.title, Article.body, Article.title_en)
+            select(Article.id, Article.title, Article.body, Article.title_en, Article.embedding)
             .where(Article.id.in_(article_ids), Article.category.is_(None))
             .order_by(Article.id)
         )
@@ -101,8 +101,13 @@ def categorize_new_articles(article_ids: list[int]) -> int:
 
         categorized = 0
         for row in rows:
-            body_snippet = row[3][:500] if row[3] else ""
-            category = assign_category(row[1] or [], row[2], body_snippet, title_en=row[4])
+            body_snippet = row[2][:500] if row[2] else ""
+            category = assign_category(
+                embedding=row[4],
+                title=row[1],
+                body_snippet=body_snippet,
+                title_en=row[3],
+            )
             session.execute(update(Article).where(Article.id == row[0]).values(category=category))
             categorized += 1
         session.commit()
@@ -188,8 +193,8 @@ def run_cycle(publishers: list[str], max_articles: int, language: str | None, ba
 
     total_inserted = 0
     total_translated = 0
-    total_categorized = 0
     total_embedded = 0
+    total_categorized = 0
 
     for code in publishers:
         new_ids = crawl_articles(code, max_articles, language)
@@ -199,14 +204,16 @@ def run_cycle(publishers: list[str], max_articles: int, language: str | None, ba
             translated = translate_new_articles(new_ids)
             total_translated += translated
 
-            categorized = categorize_new_articles(new_ids)
-            total_categorized += categorized
-
             embedded = embed_new_articles(new_ids, batch_size)
             total_embedded += embedded
 
-    click.echo(f"  Totals: {total_inserted} crawled, {total_translated} translated, "
-               f"{total_categorized} categorized, {total_embedded} embedded")
+            categorized = categorize_new_articles(new_ids)
+            total_categorized += categorized
+
+    click.echo(
+        f"  Totals: {total_inserted} crawled, {total_translated} translated, "
+        f"{total_embedded} embedded, {total_categorized} categorized"
+    )
 
     clustered = run_dedup_pass()
     click.echo(f"  Dedup: {clustered} articles in clusters")

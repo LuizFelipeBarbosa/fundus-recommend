@@ -1,134 +1,122 @@
-import re
+from __future__ import annotations
 
-CATEGORY_KEYWORDS: dict[str, dict[str, list[str]]] = {
-    "US": {
-        "topics": [
-            "politics", "congress", "senate", "house of representatives",
-            "white house", "supreme court", "election", "republican", "democrat",
-            "gop", "legislation", "executive order",
-        ],
-        "keywords": [
-            "washington", "republican", "democrat", "biden", "trump",
-            "capitol", "senate", "congress", "presidential", "governor",
-            "u.s. politics", "midterm", "electoral", "filibuster",
-        ],
-    },
-    "Global": {
-        "topics": [
-            "world", "international", "foreign policy", "diplomacy",
-            "geopolitics", "war", "conflict", "united nations",
-            "nato", "middle east", "europe", "asia", "africa",
-        ],
-        "keywords": [
-            "ukraine", "russia", "china", "nato", "united nations",
-            "european union", "middle east", "gaza", "israel",
-            "diplomacy", "sanctions", "refugee", "ceasefire", "treaty",
-            "humanitarian", "embassy", "peacekeeping",
-        ],
-    },
-    "Business": {
-        "topics": [
-            "business", "economy", "finance", "markets", "stock",
-            "banking", "wall street", "trade", "inflation",
-            "federal reserve", "gdp", "earnings",
-        ],
-        "keywords": [
-            "stock market", "wall street", "earnings", "revenue",
-            "profit", "quarterly", "investors", "fed", "interest rate",
-            "inflation", "recession", "ipo", "merger", "acquisition",
-            "startup", "valuation", "dow jones", "nasdaq", "s&p 500",
-        ],
-    },
-    "Technology": {
-        "topics": [
-            "tech", "technology", "ai", "artificial intelligence",
-            "software", "hardware", "cybersecurity", "crypto",
-            "blockchain", "startup", "science", "space",
-        ],
-        "keywords": [
-            "silicon valley", "openai", "nvidia", "google", "apple",
-            "microsoft", "meta", "amazon", "artificial intelligence",
-            "machine learning", "algorithm", "chip", "semiconductor",
-            "robotics", "quantum", "spacex", "nasa", "satellite",
-        ],
-    },
-    "Arts": {
-        "topics": [
-            "arts", "culture", "books", "literature", "museum",
-            "theater", "theatre", "music", "classical", "opera",
-            "film", "cinema", "photography", "painting",
-        ],
-        "keywords": [
-            "exhibition", "gallery", "novel", "author", "pulitzer",
-            "booker", "symphony", "orchestra", "broadway",
-            "documentary", "festival", "curator", "sculpture",
-        ],
-    },
-    "Sports": {
-        "topics": [
-            "sports", "football", "basketball", "baseball", "soccer",
-            "tennis", "golf", "hockey", "nfl", "nba", "mlb",
-            "olympics", "mls", "rugby", "cricket", "formula 1",
-        ],
-        "keywords": [
-            "championship", "playoff", "tournament", "coach", "athlete",
-            "stadium", "league", "super bowl", "world cup", "grand slam",
-            "transfer", "draft", "season", "referee", "score",
-        ],
-    },
-    "Entertainment": {
-        "topics": [
-            "entertainment", "celebrity", "tv", "television",
-            "streaming", "hollywood", "pop culture", "fashion",
-            "lifestyle", "gaming", "video games",
-        ],
-        "keywords": [
-            "netflix", "disney", "hbo", "streaming", "oscar",
-            "grammy", "emmy", "box office", "reality tv",
-            "celebrity", "red carpet", "blockbuster", "sequel",
-            "franchise", "viral", "tiktok", "influencer",
-        ],
-    },
-}
+from functools import lru_cache
 
-# Priority order for category assignment
+import numpy as np
+
+from fundus_recommend.config import settings
+from fundus_recommend.services.embeddings import embed_single, embed_texts, make_embedding_text
+
+# Priority order also defines tie-breaking when semantic scores are equal.
 CATEGORY_PRIORITY = ["US", "Global", "Business", "Technology", "Arts", "Sports", "Entertainment"]
 
+CATEGORY_PROTOTYPES: dict[str, str] = {
+    "US": (
+        "US domestic politics, congress, senate, white house, supreme court, "
+        "elections, federal policy, state governors"
+    ),
+    "Global": (
+        "international relations, geopolitics, diplomacy, wars, foreign policy, "
+        "NATO, UN, cross-border conflicts"
+    ),
+    "Business": (
+        "business, markets, finance, earnings, companies, banking, inflation, "
+        "federal reserve, economic indicators"
+    ),
+    "Technology": (
+        "technology, AI, software, hardware, semiconductors, cybersecurity, "
+        "startups, space technology"
+    ),
+    "Arts": (
+        "arts, books, museums, theater, music, film criticism, exhibitions, "
+        "cultural institutions"
+    ),
+    "Sports": (
+        "sports competitions, leagues, teams, athletes, tournaments, scores, "
+        "championships, transfers"
+    ),
+    "Entertainment": (
+        "entertainment industry, celebrities, streaming, TV, movies, pop culture, "
+        "gaming, lifestyle media"
+    ),
+}
 
-def assign_category(topics: list[str], title: str, body_snippet: str = "", title_en: str | None = None) -> str:
-    """Assign a category based on topics, title, and body text using keyword matching.
 
-    Checks topics first (substring match), then scans title + body for keywords.
-    Uses title_en (English translation) for keyword matching when available.
-    Returns the highest-priority matching category, or "General" if no match.
-    """
-    topics_lower = [t.lower() for t in topics]
-    match_title = title_en or title
-    text_lower = f"{match_title} {title} {body_snippet}".lower()
+def _normalize_vector(vector: np.ndarray) -> np.ndarray:
+    normalized = np.asarray(vector, dtype=float).reshape(-1)
+    norm = np.linalg.norm(normalized)
+    if norm == 0:
+        return normalized
+    return normalized / norm
 
-    scores: dict[str, int] = {}
 
-    for category in CATEGORY_PRIORITY:
-        cat_config = CATEGORY_KEYWORDS[category]
-        score = 0
+@lru_cache(maxsize=1)
+def _get_prototype_embeddings() -> np.ndarray:
+    """Return normalized category prototype embeddings in CATEGORY_PRIORITY order."""
+    texts = [CATEGORY_PROTOTYPES[category] for category in CATEGORY_PRIORITY]
+    vectors = np.asarray(embed_texts(texts), dtype=float)
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    norms = np.where(norms == 0, 1.0, norms)
+    return vectors / norms
 
-        # Check topic matches (weighted higher)
-        for topic in topics_lower:
-            for pattern in cat_config["topics"]:
-                if pattern in topic:
-                    score += 3
-                    break
 
-        # Check keyword matches in title + body
-        for keyword in cat_config["keywords"]:
-            if re.search(r"\b" + re.escape(keyword) + r"\b", text_lower):
-                score += 1
+def _resolve_article_embedding(
+    embedding: np.ndarray | list[float] | tuple[float, ...] | None,
+    title: str,
+    body_snippet: str,
+    title_en: str | None,
+) -> np.ndarray | None:
+    if embedding is not None:
+        article_vector = _normalize_vector(np.asarray(embedding, dtype=float))
+        if article_vector.size > 0 and np.linalg.norm(article_vector) > 0:
+            return article_vector
 
-        if score > 0:
-            scores[category] = score
+    if not (title or body_snippet or title_en):
+        return None
 
-    if not scores:
+    fallback_text = make_embedding_text(title, body_snippet, title_en=title_en)
+    fallback_vector = _normalize_vector(np.asarray(embed_single(fallback_text), dtype=float))
+    if fallback_vector.size == 0 or np.linalg.norm(fallback_vector) == 0:
+        return None
+    return fallback_vector
+
+
+def _select_category(scores: np.ndarray, min_score: float, min_margin: float) -> str:
+    if scores.size == 0:
         return "General"
 
-    # Return the category with the highest score; break ties by priority order
-    return max(CATEGORY_PRIORITY, key=lambda c: scores.get(c, 0))
+    top_index = int(np.argmax(scores))
+    top_score = float(scores[top_index])
+    runner_up = float(np.partition(scores, -2)[-2]) if scores.size > 1 else -1.0
+    margin = top_score - runner_up
+
+    if top_score < min_score or margin < min_margin:
+        return "General"
+    return CATEGORY_PRIORITY[top_index]
+
+
+def assign_category(
+    embedding: np.ndarray | list[float] | tuple[float, ...] | None = None,
+    title: str = "",
+    body_snippet: str = "",
+    title_en: str | None = None,
+) -> str:
+    """Assign a semantic category from embedding similarity with confidence fallback.
+
+    The classifier compares an article embedding against fixed category prototype
+    embeddings. If no usable embedding is provided, it falls back to embedding the
+    article text (title + body snippet). Low-confidence results are mapped to
+    "General" using score and score-margin thresholds from settings.
+    """
+    article_vector = _resolve_article_embedding(embedding, title, body_snippet, title_en)
+    if article_vector is None:
+        return "General"
+
+    prototype_matrix = _get_prototype_embeddings()
+    scores = prototype_matrix @ article_vector
+
+    return _select_category(
+        scores=scores,
+        min_score=settings.category_semantic_min_score,
+        min_margin=settings.category_semantic_min_margin,
+    )
