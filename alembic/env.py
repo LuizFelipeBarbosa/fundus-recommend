@@ -25,7 +25,9 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    connectable = engine_from_config(config.get_section(config.config_ini_section, {}), prefix="sqlalchemy.", poolclass=pool.NullPool)
+    configuration = config.get_section(config.config_ini_section, {})
+    configuration["sqlalchemy.url"] = config.get_main_option("sqlalchemy.url")
+    connectable = engine_from_config(configuration, prefix="sqlalchemy.", poolclass=pool.NullPool)
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
