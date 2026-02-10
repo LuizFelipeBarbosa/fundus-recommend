@@ -3,7 +3,14 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
-import { getArticle, getRecommendations, getSessionId, trackView, ArticleDetail, SearchResult } from "@/lib/api";
+import {
+  getArticle,
+  getSessionId,
+  getStoryRecommendations,
+  trackView,
+  ArticleDetail,
+  StoryRecommendationResult,
+} from "@/lib/api";
 import { getDisplayTitle, hasTranslation } from "@/lib/article-utils";
 import ArticleGrid from "@/components/ArticleGrid";
 
@@ -22,7 +29,7 @@ export default function ArticleDetailPage() {
   const id = Number(params.id);
 
   const [article, setArticle] = useState<ArticleDetail | null>(null);
-  const [similar, setSimilar] = useState<SearchResult[]>([]);
+  const [similar, setSimilar] = useState<StoryRecommendationResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showOriginal, setShowOriginal] = useState(false);
@@ -36,7 +43,7 @@ export default function ArticleDetailPage() {
       try {
         const [articleData, recsData] = await Promise.all([
           getArticle(id),
-          getRecommendations({ similar_to: id, limit: 6 }),
+          getStoryRecommendations({ similar_to: id, limit: 6 }),
         ]);
         setArticle(articleData);
         setSimilar(recsData.results);
@@ -71,7 +78,12 @@ export default function ArticleDetailPage() {
     );
   }
 
-  const scores = new Map(similar.map((r) => [r.article.id, r.score]));
+  const scores = new Map<number, number>();
+  for (const result of similar) {
+    for (const similarArticle of result.story.articles) {
+      scores.set(similarArticle.id, result.score);
+    }
+  }
 
   return (
     <div className="pt-8 opacity-0 animate-fade-in">
@@ -188,10 +200,10 @@ export default function ArticleDetailPage() {
         <section className="border-t-2 border-ink pt-8">
           <h2 className="mb-2 font-display text-2xl font-bold italic text-ink">Related Coverage</h2>
           <p className="mb-6 font-sans text-[11px] uppercase tracking-[0.2em] text-ink-muted">
-            Articles with semantic similarity
+            Popular related stories
           </p>
           <div className="rule mb-8" />
-          <ArticleGrid articles={similar.map((r) => r.article)} scores={scores} />
+          <ArticleGrid articles={similar.flatMap((result) => result.story.articles)} scores={scores} />
         </section>
       )}
     </div>

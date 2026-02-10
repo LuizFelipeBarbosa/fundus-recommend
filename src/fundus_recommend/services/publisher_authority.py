@@ -12,50 +12,131 @@ from __future__ import annotations
 
 _TIER_1: frozenset[str] = frozenset(
     {
+        # Wire services
         "Associated Press News",
-        "The Guardian",
-        "Le Monde",
+        "Reuters",
+        "Afp",
+        "Dpa",
+        "Ansa",
+        "Kyodonews",
+        # US papers of record / major outlets
+        "Nytimes",
+        "Washington Post",
+        "Wsj",
         "Los Angeles Times",
         "The Washington Times",
         "The New Yorker",
+        "Bloomberg",
+        "CNN",
+        "Npr",
+        # UK
+        "The Guardian",
+        "The BBC",
+        "Ft",
+        "Economist",
         "Nature",
-        "Voice Of America",
+        # France
+        "Le Monde",
+        "Le Figaro",
+        # Germany
         "Frankfurter Allgemeine Zeitung",
         "Süddeutsche Zeitung",
         "Die Zeit",
         "Tagesschau",
-        "Le Figaro",
         "Deutsche Welle",
         "ZDF",
+        # Other international
+        "Aljazeera",
+        "Voice Of America",
+        "CBC News",
+        "The Globe and Mail",
+        "Neue Zürcher Zeitung (NZZ)",
+        "El País",
+        "Corriere della Sera",
     }
 )
 
 _TIER_2: frozenset[str] = frozenset(
     {
-        "The Independent",
+        # US
+        "CNBC",
         "Business Insider",
         "Fox News",
-        "CNBC",
         "The Intercept",
         "TechCrunch",
         "Wired",
         "Rolling Stone",
+        "The Nation",
+        "Propublica",
+        "Theatlantic",
+        "Politico",
+        "Axios",
+        "USA Today",
+        "CBS News",
+        "NBC News",
+        "ABC News",
+        "Newsweek",
+        # UK
+        "The Independent",
+        "Thetimes",
+        "The Telegraph",
+        "Sky",
         "Euronews (EN)",
+        # France
+        "Les Échos",
+        "France24",
+        "Liberation",
         "Euronews (FR)",
-        "Euronews (DE)",
+        # Germany
         "Spiegel Online",
         "Die Welt",
         "Stern",
         "Focus Online",
-        "Nine News",
-        "Rest of World",
-        "The Nation",
         "Bild",
         "N-Tv",
         "T-Online",
         "Tagesspiegel",
         "Berliner Zeitung",
         "Die Tageszeitung (taz)",
+        "Handelsblatt",
+        "Deutschlandfunk",
+        "Frankfurter Rundschau",
+        "Euronews (DE)",
+        # Switzerland
+        "Schweizer Radio und Fernsehen",
+        # Italy
+        "La Repubblica",
+        # Netherlands
+        "Nos",
+        "Nrc",
+        # Nordics
+        "Politiken",
+        "Dr",
+        "Norsk rikskringkasting",
+        "Yle",
+        # Asia-Pacific
+        "Scmp",
+        "Straitstimes",
+        "Channelnewsasia",
+        "Nine News",
+        "Times Of India",
+        "Thehindu",
+        "Ndtv",
+        "Asahi Shimbun",
+        "The Nikkei",
+        "Nhk Or",
+        "Kompas",
+        "Dawn",
+        "Rappler",
+        # Middle East / Africa
+        "Haaretz",
+        "Daily Maverick",
+        # Eastern Europe
+        "Ukrainska Pravda",
+        "Kyivindependent",
+        "Meduza",
+        # Other
+        "Rest of World",
     }
 )
 

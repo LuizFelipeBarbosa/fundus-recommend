@@ -22,23 +22,43 @@ def run_dedup(session: Session) -> int:
     # Cosine similarity matrix (embeddings are already L2-normalized)
     sim_matrix = embeddings @ embeddings.T
 
-    cluster_map: dict[int, int] = {}
-    clustered_count = 0
+    # Recompute from scratch each pass: clear stale assignments first.
+    session.execute(update(Article).where(Article.embedding.is_not(None)).values(dedup_cluster_id=None))
 
-    for i in range(len(ids)):
-        if ids[i] in cluster_map:
+    # Connected components over pairwise similarity graph.
+    n = len(ids)
+    visited = [False] * n
+    cluster_map: dict[int, int] = {}
+
+    for start in range(n):
+        if visited[start]:
             continue
-        for j in range(i + 1, len(ids)):
-            if ids[j] in cluster_map:
+
+        stack = [start]
+        component_indices: list[int] = []
+
+        while stack:
+            idx = stack.pop()
+            if visited[idx]:
                 continue
-            if sim_matrix[i, j] >= settings.dedup_threshold:
-                cluster_id = cluster_map.get(ids[i], ids[i])
-                cluster_map[ids[i]] = cluster_id
-                cluster_map[ids[j]] = cluster_id
+            visited[idx] = True
+            component_indices.append(idx)
+
+            neighbors = np.where(sim_matrix[idx] >= settings.dedup_threshold)[0]
+            for neighbor in neighbors:
+                if neighbor == idx or visited[neighbor]:
+                    continue
+                stack.append(int(neighbor))
+
+        if len(component_indices) < 2:
+            continue
+
+        cluster_id = min(ids[i] for i in component_indices)
+        for i in component_indices:
+            cluster_map[ids[i]] = cluster_id
 
     for article_id, cluster_id in cluster_map.items():
         session.execute(update(Article).where(Article.id == article_id).values(dedup_cluster_id=cluster_id))
-        clustered_count += 1
 
     session.commit()
-    return clustered_count
+    return len(cluster_map)

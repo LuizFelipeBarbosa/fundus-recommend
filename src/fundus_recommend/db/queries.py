@@ -1,3 +1,7 @@
+from dataclasses import dataclass
+from datetime import datetime, timezone
+import math
+
 import numpy as np
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,7 +11,294 @@ from fundus_recommend.config import settings
 from fundus_recommend.models.db import Article, ArticleView, User, UserPreference
 from fundus_recommend.services.embeddings import embed_single
 from fundus_recommend.services.publisher_authority import authority_score
-from fundus_recommend.services.ranking import RankingWeights, composite_scores, mmr_rerank
+from fundus_recommend.services.ranking import RankingWeights, composite_scores
+
+
+@dataclass
+class RankedStory:
+    story_id: str
+    dedup_cluster_id: int | None
+    lead_article: Article
+    articles: list[Article]
+
+
+def _as_utc_timestamp(dt: datetime | None) -> float:
+    if dt is None:
+        return float("-inf")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
+
+def _story_key(article: Article) -> str:
+    if article.dedup_cluster_id is not None:
+        return f"cluster:{article.dedup_cluster_id}"
+    return f"article:{article.id}"
+
+
+def _dedupe_articles_by_id(articles: list[Article]) -> list[Article]:
+    deduped: list[Article] = []
+    seen_ids: set[int] = set()
+    for article in articles:
+        if article.id in seen_ids:
+            continue
+        seen_ids.add(article.id)
+        deduped.append(article)
+    return deduped
+
+
+def _compute_popularity_scores(articles: list[Article], view_counts: dict[int, int]) -> np.ndarray:
+    dates = [a.publishing_date for a in articles]
+    views = [view_counts.get(a.id, 0) for a in articles]
+    cluster_ids = [a.dedup_cluster_id for a in articles]
+
+    # Compute cluster sizes: how many articles share each dedup_cluster_id.
+    cluster_size_map: dict[int, int] = {}
+    for cid in cluster_ids:
+        if cid is not None:
+            cluster_size_map[cid] = cluster_size_map.get(cid, 0) + 1
+    cluster_sizes = [cluster_size_map.get(cid, 1) if cid is not None else 1 for cid in cluster_ids]
+
+    authorities = [authority_score(a.publisher) for a in articles]
+
+    weights = RankingWeights(
+        freshness=settings.ranking_freshness_weight,
+        prominence=settings.ranking_prominence_weight,
+        authority=settings.ranking_authority_weight,
+        engagement=settings.ranking_engagement_weight,
+        diversity_lambda=settings.ranking_diversity_lambda,
+        half_life_hours=settings.ranking_recency_half_life_hours,
+    )
+
+    return composite_scores(dates, views, weights, cluster_sizes, authorities)
+
+
+def _rank_story_leads_by_popularity(
+    articles: list[Article],
+    scores: np.ndarray,
+    exclude_story_key: str | None = None,
+) -> tuple[list[str], dict[str, Article], dict[str, float]]:
+    ranked_indices = sorted(
+        range(len(articles)),
+        key=lambda i: (
+            -float(scores[i]),
+            -_as_utc_timestamp(articles[i].publishing_date),
+            -articles[i].id,
+        ),
+    )
+
+    ordered_story_keys: list[str] = []
+    lead_by_story_key: dict[str, Article] = {}
+    score_by_story_key: dict[str, float] = {}
+
+    for idx in ranked_indices:
+        article = articles[idx]
+        story_key = _story_key(article)
+        if exclude_story_key is not None and story_key == exclude_story_key:
+            continue
+        if story_key in lead_by_story_key:
+            continue
+        ordered_story_keys.append(story_key)
+        lead_by_story_key[story_key] = article
+        score_by_story_key[story_key] = float(scores[idx])
+
+    return ordered_story_keys, lead_by_story_key, score_by_story_key
+
+
+async def _get_story_source_counts(
+    session: AsyncSession,
+    lead_by_story_key: dict[str, Article],
+) -> dict[str, int]:
+    source_count_by_story_key: dict[str, int] = {story_key: 1 for story_key in lead_by_story_key}
+    cluster_ids = sorted(
+        {
+            article.dedup_cluster_id
+            for article in lead_by_story_key.values()
+            if article.dedup_cluster_id is not None
+        }
+    )
+    if not cluster_ids:
+        return source_count_by_story_key
+
+    result = await session.execute(
+        select(Article.dedup_cluster_id, func.count(Article.id))
+        .where(Article.dedup_cluster_id.in_(cluster_ids))
+        .group_by(Article.dedup_cluster_id)
+    )
+    cluster_count_map = {int(cluster_id): int(count) for cluster_id, count in result.all() if cluster_id is not None}
+
+    for story_key, lead_article in lead_by_story_key.items():
+        if lead_article.dedup_cluster_id is None:
+            source_count_by_story_key[story_key] = 1
+        else:
+            source_count_by_story_key[story_key] = cluster_count_map.get(lead_article.dedup_cluster_id, 1)
+
+    return source_count_by_story_key
+
+
+def _coverage_score(source_count: int, max_source_count: int) -> float:
+    if source_count <= 0:
+        return 0.0
+    if max_source_count <= 0:
+        return 0.0
+    denominator = math.log1p(max_source_count)
+    if denominator <= 0.0:
+        return 0.0
+    return math.log1p(source_count) / denominator
+
+
+def _rank_story_leads_by_quality(
+    lead_by_story_key: dict[str, Article],
+    popularity_score_by_story_key: dict[str, float],
+    source_count_by_story_key: dict[str, int],
+) -> tuple[list[str], dict[str, float]]:
+    if not lead_by_story_key:
+        return [], {}
+
+    max_source_count = max(source_count_by_story_key.values()) if source_count_by_story_key else 1
+    final_score_by_story_key: dict[str, float] = {}
+
+    for story_key, lead_article in lead_by_story_key.items():
+        popularity_score = popularity_score_by_story_key.get(story_key, 0.0)
+        source_count = source_count_by_story_key.get(story_key, 1)
+        coverage_score = _coverage_score(source_count, max_source_count)
+        reputation_score = authority_score(lead_article.publisher)
+
+        final_score_by_story_key[story_key] = (
+            settings.top_story_score_popularity_weight * popularity_score
+            + settings.top_story_score_coverage_weight * coverage_score
+            + settings.top_story_score_reputation_weight * reputation_score
+        )
+
+    min_sources = max(settings.top_story_min_sources, 1)
+    remaining_story_keys = set(lead_by_story_key)
+    ordered_story_keys: list[str] = []
+
+    for source_threshold in range(min_sources, 0, -1):
+        tier_story_keys = [
+            story_key
+            for story_key in remaining_story_keys
+            if source_count_by_story_key.get(story_key, 1) >= source_threshold
+        ]
+        tier_story_keys.sort(
+            key=lambda story_key: (
+                -final_score_by_story_key[story_key],
+                -source_count_by_story_key.get(story_key, 1),
+                -_as_utc_timestamp(lead_by_story_key[story_key].publishing_date),
+                -lead_by_story_key[story_key].id,
+            )
+        )
+
+        ordered_story_keys.extend(tier_story_keys)
+        remaining_story_keys.difference_update(tier_story_keys)
+        if not remaining_story_keys:
+            break
+
+    if remaining_story_keys:
+        tail_story_keys = sorted(
+            remaining_story_keys,
+            key=lambda story_key: (
+                -final_score_by_story_key[story_key],
+                -source_count_by_story_key.get(story_key, 1),
+                -_as_utc_timestamp(lead_by_story_key[story_key].publishing_date),
+                -lead_by_story_key[story_key].id,
+            ),
+        )
+        ordered_story_keys.extend(tail_story_keys)
+
+    return ordered_story_keys, final_score_by_story_key
+
+
+async def _expand_ranked_stories(
+    session: AsyncSession,
+    lead_by_story_key: dict[str, Article],
+    story_keys: list[str],
+) -> list[RankedStory]:
+    if not story_keys:
+        return []
+
+    page_cluster_ids = sorted(
+        {
+            lead_by_story_key[story_key].dedup_cluster_id
+            for story_key in story_keys
+            if lead_by_story_key[story_key].dedup_cluster_id is not None
+        }
+    )
+
+    story_articles_by_cluster: dict[int, list[Article]] = {}
+    if page_cluster_ids:
+        cluster_result = await session.execute(
+            select(Article)
+            .options(defer(Article.body), defer(Article.embedding))
+            .where(Article.dedup_cluster_id.in_(page_cluster_ids))
+            .order_by(
+                Article.dedup_cluster_id.asc(),
+                Article.publishing_date.desc().nulls_last(),
+                Article.id.desc(),
+            )
+        )
+        for article in cluster_result.scalars().all():
+            cluster_id = article.dedup_cluster_id
+            if cluster_id is None:
+                continue
+            story_articles_by_cluster.setdefault(cluster_id, []).append(article)
+
+    stories: list[RankedStory] = []
+    for story_key in story_keys:
+        lead_article = lead_by_story_key[story_key]
+        cluster_id = lead_article.dedup_cluster_id
+
+        if cluster_id is None:
+            story_articles = [lead_article]
+        else:
+            grouped_articles = story_articles_by_cluster.get(cluster_id, [])
+            if grouped_articles:
+                story_articles = [lead_article] + [a for a in grouped_articles if a.id != lead_article.id]
+            else:
+                story_articles = [lead_article]
+
+        stories.append(
+            RankedStory(
+                story_id=story_key,
+                dedup_cluster_id=cluster_id,
+                lead_article=lead_article,
+                articles=story_articles,
+            )
+        )
+
+    return stories
+
+
+async def _rank_story_candidates(
+    session: AsyncSession,
+    candidate_articles: list[Article],
+    limit: int,
+    exclude_story_key: str | None = None,
+) -> list[tuple[RankedStory, float]]:
+    if limit <= 0:
+        return []
+
+    articles = _dedupe_articles_by_id(candidate_articles)
+    if not articles:
+        return []
+
+    view_counts = await get_view_counts(session)
+    scores = _compute_popularity_scores(articles, view_counts)
+    _ordered_story_keys, lead_by_story_key, popularity_score_by_story_key = _rank_story_leads_by_popularity(
+        articles,
+        scores,
+        exclude_story_key,
+    )
+    source_count_by_story_key = await _get_story_source_counts(session, lead_by_story_key)
+    ordered_story_keys, final_score_by_story_key = _rank_story_leads_by_quality(
+        lead_by_story_key,
+        popularity_score_by_story_key,
+        source_count_by_story_key,
+    )
+    selected_story_keys = ordered_story_keys[:limit]
+    stories = await _expand_ranked_stories(session, lead_by_story_key, selected_story_keys)
+
+    return [(story, final_score_by_story_key[story.story_id]) for story in stories]
 
 
 async def get_article_count(session: AsyncSession) -> int:
@@ -89,6 +380,37 @@ async def recommend_similar(session: AsyncSession, article_id: int, limit: int =
     return [(row[0], 1.0 - row[1]) for row in rows]
 
 
+async def recommend_stories_by_topic(
+    session: AsyncSession,
+    topic: str,
+    limit: int = 10,
+    candidate_limit: int = 200,
+) -> list[tuple[RankedStory, float]]:
+    candidates = await semantic_search(session, topic, candidate_limit)
+    candidate_articles = [article for article, _score in candidates]
+    return await _rank_story_candidates(session, candidate_articles, limit)
+
+
+async def recommend_stories_similar(
+    session: AsyncSession,
+    article_id: int,
+    limit: int = 10,
+    candidate_limit: int = 200,
+) -> list[tuple[RankedStory, float]]:
+    source_article = await get_article_by_id(session, article_id)
+    if source_article is None or source_article.embedding is None:
+        return []
+
+    candidates = await recommend_similar(session, article_id, candidate_limit)
+    candidate_articles = [article for article, _score in candidates]
+    return await _rank_story_candidates(
+        session,
+        candidate_articles,
+        limit,
+        exclude_story_key=_story_key(source_article),
+    )
+
+
 async def get_personalized_feed(session: AsyncSession, user_id: str, limit: int = 20) -> list[tuple[Article, float]]:
     result = await session.execute(select(UserPreference).where(UserPreference.user_id == user_id))
     preferences = list(result.scalars().all())
@@ -105,6 +427,31 @@ async def get_personalized_feed(session: AsyncSession, user_id: str, limit: int 
 
     ranked = sorted(scored.values(), key=lambda x: x[1], reverse=True)
     return ranked[:limit]
+
+
+async def get_personalized_story_feed(
+    session: AsyncSession,
+    user_id: str,
+    limit: int = 20,
+    candidate_limit_per_topic: int = 100,
+) -> list[tuple[RankedStory, float]]:
+    result = await session.execute(select(UserPreference).where(UserPreference.user_id == user_id))
+    preferences = list(result.scalars().all())
+    if not preferences:
+        return []
+
+    candidate_articles_by_id: dict[int, Article] = {}
+    for pref in preferences:
+        candidates = await semantic_search(session, pref.topic, candidate_limit_per_topic)
+        for article, _score in candidates:
+            if article.id not in candidate_articles_by_id:
+                candidate_articles_by_id[article.id] = article
+
+    return await _rank_story_candidates(
+        session,
+        list(candidate_articles_by_id.values()),
+        limit,
+    )
 
 
 async def set_user_preferences(
@@ -221,3 +568,57 @@ async def get_ranked_articles(
 
     ranked_articles = [articles[i] for i in page_indices]
     return ranked_articles, total
+
+
+async def get_ranked_stories(
+    session: AsyncSession,
+    page: int = 1,
+    page_size: int = 15,
+    publisher: str | None = None,
+    language: str | None = None,
+    topic: str | None = None,
+    category: str | None = None,
+    candidate_limit: int = 200,
+) -> tuple[list[RankedStory], int]:
+    query = select(Article).options(defer(Article.body), defer(Article.embedding)).where(Article.embedding.is_not(None))
+
+    if publisher:
+        query = query.where(Article.publisher == publisher)
+    if language:
+        query = query.where(Article.language == language)
+    if topic:
+        query = query.where(Article.topics.any(topic))
+    if category:
+        query = query.where(Article.category == category)
+
+    # Fetch only the most recent candidates — freshness-weighted ranking makes
+    # older articles score near-zero anyway (48h half-life), so loading all rows
+    # wastes bandwidth, especially with a remote database.
+    query = query.order_by(Article.publishing_date.desc().nulls_last()).limit(candidate_limit)
+    result = await session.execute(query)
+    articles = list(result.scalars().all())
+
+    if not articles:
+        return [], 0
+
+    view_counts = await get_view_counts(session)
+    scores = _compute_popularity_scores(articles, view_counts)
+    _ordered_story_keys, lead_by_story_key, popularity_score_by_story_key = _rank_story_leads_by_popularity(
+        articles, scores
+    )
+    source_count_by_story_key = await _get_story_source_counts(session, lead_by_story_key)
+    ordered_story_keys, _final_score_by_story_key = _rank_story_leads_by_quality(
+        lead_by_story_key,
+        popularity_score_by_story_key,
+        source_count_by_story_key,
+    )
+
+    total_stories = len(ordered_story_keys)
+    offset = (page - 1) * page_size
+    page_story_keys = ordered_story_keys[offset : offset + page_size]
+
+    if not page_story_keys:
+        return [], total_stories
+
+    stories = await _expand_ranked_stories(session, lead_by_story_key, page_story_keys)
+    return stories, total_stories

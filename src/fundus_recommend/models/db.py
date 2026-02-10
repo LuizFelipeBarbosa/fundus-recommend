@@ -13,6 +13,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from fundus_recommend.config import settings
@@ -83,4 +84,59 @@ class ArticleView(Base):
     __table_args__ = (
         Index("ix_article_views_article_id", "article_id"),
         Index("ix_article_views_viewed_at", "viewed_at"),
+    )
+
+
+class CrawlRun(Base):
+    __tablename__ = "crawl_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_label: Mapped[str] = mapped_column(String(64), nullable=False, default="crawl")
+    requested_publishers: Mapped[list[str]] = mapped_column(ARRAY(String(255)), default=list)
+    resolved_publishers: Mapped[list[str]] = mapped_column(ARRAY(String(255)), default=list)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
+    total_publishers: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    succeeded_publishers: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    skipped_publishers: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed_publishers: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_inserted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    publishers: Mapped[list["CrawlRunPublisher"]] = relationship(
+        back_populates="crawl_run",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        Index("ix_crawl_runs_started_at", "started_at"),
+        Index("ix_crawl_runs_status", "status"),
+    )
+
+
+class CrawlRunPublisher(Base):
+    __tablename__ = "crawl_run_publishers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    crawl_run_id: Mapped[int] = mapped_column(Integer, ForeignKey("crawl_runs.id", ondelete="CASCADE"), nullable=False)
+    publisher_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    adapter: Mapped[str] = mapped_column(String(50), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(20), nullable=False)
+    inserted_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    crawled_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    skipped_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status_histogram: Mapped[dict[str, int]] = mapped_column(JSONB, nullable=False, default=dict)
+    skip_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    crawl_run: Mapped["CrawlRun"] = relationship(back_populates="publishers")
+
+    __table_args__ = (
+        Index("ix_crawl_run_publishers_run_id", "crawl_run_id"),
+        Index("ix_crawl_run_publishers_publisher_id", "publisher_id"),
+        Index("ix_crawl_run_publishers_started_at", "started_at"),
     )

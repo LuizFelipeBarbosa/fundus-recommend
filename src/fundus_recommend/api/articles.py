@@ -6,10 +6,22 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fundus_recommend.db.queries import get_article_by_id, get_ranked_articles, list_articles, record_article_view
+from fundus_recommend.db.queries import (
+    get_article_by_id,
+    get_ranked_articles,
+    get_ranked_stories,
+    list_articles,
+    record_article_view,
+)
 from fundus_recommend.db.session import get_async_session
 from fundus_recommend.models.db import Article
-from fundus_recommend.models.schemas import ArticleDetail, ArticleListResponse, ArticleSummary
+from fundus_recommend.models.schemas import (
+    ArticleDetail,
+    ArticleListResponse,
+    ArticleSummary,
+    NewsStory,
+    StoryListResponse,
+)
 
 router = APIRouter(tags=["articles"])
 
@@ -31,6 +43,34 @@ async def get_articles(
         articles, total = await list_articles(session, page, page_size, publisher, language, topic, category)
     return ArticleListResponse(
         items=[ArticleSummary.model_validate(a) for a in articles],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/stories", response_model=StoryListResponse)
+async def get_stories(
+    page: int = 1,
+    page_size: int = 15,
+    publisher: str | None = None,
+    language: str | None = None,
+    topic: str | None = None,
+    category: str | None = None,
+    session: AsyncSession = Depends(get_async_session),
+):
+    stories, total = await get_ranked_stories(session, page, page_size, publisher, language, topic, category)
+    return StoryListResponse(
+        items=[
+            NewsStory(
+                story_id=story.story_id,
+                dedup_cluster_id=story.dedup_cluster_id,
+                source_count=len(story.articles),
+                lead_article=ArticleSummary.model_validate(story.lead_article),
+                articles=[ArticleSummary.model_validate(article) for article in story.articles],
+            )
+            for story in stories
+        ],
         total=total,
         page=page,
         page_size=page_size,

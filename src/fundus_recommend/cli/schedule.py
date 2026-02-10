@@ -2,60 +2,17 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import click
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
+from fundus_recommend.config import settings
 from fundus_recommend.db.session import SyncSessionLocal, sync_engine
+from fundus_recommend.ingest.pipeline import crawl_publishers_once
+from fundus_recommend.ingest.registry import DEFAULT_PUBLISHER_IDS
 from fundus_recommend.models.db import Article, Base
 from fundus_recommend.services.categorizer import assign_category
-from fundus_recommend.services.date_resolution import resolve_article_publishing_date
 from fundus_recommend.services.dedup import run_dedup
 from fundus_recommend.services.embeddings import embed_texts, make_embedding_text
 from fundus_recommend.services.translation import translate_to_english
-
-
-def crawl_articles(publisher_code: str, max_articles: int, language: str | None) -> list[int]:
-    """Crawl a single publisher collection and return IDs of newly inserted articles."""
-    from fundus import Crawler, PublisherCollection
-
-    collection = getattr(PublisherCollection, publisher_code, None)
-    if collection is None:
-        click.echo(f"  Unknown publisher collection: {publisher_code}, skipping")
-        return []
-
-    click.echo(f"  Crawling from '{publisher_code}' (max {max_articles})...")
-    crawler = Crawler(collection)
-    new_ids: list[int] = []
-
-    for article in crawler.crawl(max_articles=max_articles):
-        if language and article.lang and article.lang != language:
-            continue
-
-        with SyncSessionLocal() as session:
-            exists = session.execute(select(Article.id).where(Article.url == article.html.responded_url)).scalar()
-            if exists:
-                continue
-
-            cover_url = None
-            if article.images:
-                cover_url = article.images[0].url
-
-            db_article = Article(
-                url=article.html.responded_url,
-                title=article.title,
-                body=str(article.body),
-                authors=list(article.authors) if article.authors else [],
-                topics=list(article.topics) if article.topics else [],
-                publisher=article.publisher,
-                language=article.lang,
-                publishing_date=resolve_article_publishing_date(article),
-                cover_image_url=cover_url,
-            )
-            session.add(db_article)
-            session.commit()
-            new_ids.append(db_article.id)
-
-    click.echo(f"  Inserted {len(new_ids)} articles from '{publisher_code}'")
-    return new_ids
 
 
 def translate_new_articles(article_ids: list[int]) -> int:
@@ -188,28 +145,67 @@ def run_dedup_pass() -> int:
         return run_dedup(session)
 
 
-def run_cycle(publishers: list[str], max_articles: int, language: str | None, batch_size: int) -> None:
+def get_dedup_stats() -> tuple[int, int, int]:
+    with SyncSessionLocal() as session:
+        clustered_articles = (
+            session.execute(select(func.count(Article.id)).where(Article.dedup_cluster_id.is_not(None))).scalar() or 0
+        )
+        cluster_count = (
+            session.execute(
+                select(func.count(func.distinct(Article.dedup_cluster_id))).where(Article.dedup_cluster_id.is_not(None))
+            ).scalar()
+            or 0
+        )
+        cluster_sizes = (
+            select(func.count(Article.id).label("cluster_size"))
+            .where(Article.dedup_cluster_id.is_not(None))
+            .group_by(Article.dedup_cluster_id)
+            .subquery()
+        )
+        max_cluster_size = session.execute(select(func.coalesce(func.max(cluster_sizes.c.cluster_size), 0))).scalar() or 0
+
+    return int(clustered_articles), int(cluster_count), int(max_cluster_size)
+
+
+def run_cycle(publishers: list[str], max_articles: int, language: str | None, batch_size: int, workers: int) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    click.echo(f"\n[{now}] Starting crawl cycle...")
+    click.echo(f"\n[{now}] Starting crawl cycle ({workers} workers)...")
+
+    crawl_result = crawl_publishers_once(
+        publisher_tokens=publishers,
+        max_articles=max_articles,
+        language=language,
+        workers=workers,
+        run_label="schedule-cycle",
+    )
 
     total_inserted = 0
     total_translated = 0
     total_embedded = 0
     total_categorized = 0
 
-    for code in publishers:
-        new_ids = crawl_articles(code, max_articles, language)
-        total_inserted += len(new_ids)
+    for publisher_result in crawl_result.publisher_results:
+        diag = publisher_result.diagnostics
+        inserted = diag.inserted_count
+        translated = 0
+        embedded = 0
+        categorized = 0
 
-        if new_ids:
-            translated = translate_new_articles(new_ids)
-            total_translated += translated
+        if publisher_result.inserted_article_ids:
+            translated = translate_new_articles(publisher_result.inserted_article_ids)
+            embedded = embed_new_articles(publisher_result.inserted_article_ids, batch_size)
+            categorized = categorize_new_articles(publisher_result.inserted_article_ids)
 
-            embedded = embed_new_articles(new_ids, batch_size)
-            total_embedded += embedded
+        total_inserted += inserted
+        total_translated += translated
+        total_embedded += embedded
+        total_categorized += categorized
 
-            categorized = categorize_new_articles(new_ids)
-            total_categorized += categorized
+        click.echo(
+            f"  [{publisher_result.publisher_id}] adapter={diag.adapter} outcome={diag.outcome} "
+            f"crawled={diag.crawled_count} inserted={inserted} translated={translated} "
+            f"embedded={embedded} categorized={categorized}"
+        )
 
     click.echo(
         f"  Totals: {total_inserted} crawled, {total_translated} translated, "
@@ -217,12 +213,21 @@ def run_cycle(publishers: list[str], max_articles: int, language: str | None, ba
     )
 
     clustered = run_dedup_pass()
-    click.echo(f"  Dedup: {clustered} articles in clusters")
+    clustered_articles, cluster_count, max_cluster_size = get_dedup_stats()
+    click.echo(
+        "  Dedup: "
+        f"threshold={settings.dedup_threshold:.2f}, "
+        f"reassigned={clustered}, "
+        f"clustered_articles={clustered_articles}, "
+        f"clusters={cluster_count}, "
+        f"max_cluster_size={max_cluster_size}"
+    )
 
     refreshed = refresh_stale_embeddings(max_age_days=7, batch_size=batch_size)
     if refreshed:
         click.echo(f"  Refreshed {refreshed} stale embeddings")
 
+    click.echo(f"  Crawl diagnostics run_id={crawl_result.run_id}")
     click.echo(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Cycle complete.")
 
 
@@ -230,22 +235,26 @@ def run_cycle(publishers: list[str], max_articles: int, language: str | None, ba
 @click.option(
     "-p",
     "--publishers",
-    default="ar,at,au,bd,be,br,ca,ch,cl,cn,co,cz,de,dk,eg,es,fi,fr,gl,gr,hk,hu,id,ie,il,ind,intl,isl,it,jp,ke,kr,lb,li,ls,lt,lu,mx,my,na,ng,nl,no,nz,ph,pk,pl,pt,py,ro,ru,sa,se,sg,th,tr,tw,tz,ua,uk,us,ve,vn,za",
-    help="Comma-separated publisher country codes",
+    default=",".join(DEFAULT_PUBLISHER_IDS),
+    help="Comma-separated publisher IDs (legacy country codes still accepted)",
 )
 @click.option("-n", "--max-articles", default=100, help="Max articles per publisher per cycle")
 @click.option("-l", "--language", default=None, help="Filter by language (e.g. en); omit for all languages")
 @click.option("--interval", default=10, help="Minutes between crawl cycles")
 @click.option("--batch-size", default=64, help="Embedding batch size")
+@click.option("--workers", default=4, help="Number of parallel workers for crawling publishers")
 @click.option("--run-once", is_flag=True, help="Run a single cycle then exit")
-def main(publishers: str, max_articles: int, language: str | None, interval: int, batch_size: int, run_once: bool) -> None:
+def main(publishers: str, max_articles: int, language: str | None, interval: int, batch_size: int, workers: int, run_once: bool) -> None:
     """Scheduled crawl + embed + dedup loop."""
     Base.metadata.create_all(sync_engine)
 
-    pub_list = [c.strip().lower() for c in publishers.split(",")]
-    click.echo(f"Scheduler: publishers={pub_list}, max_articles={max_articles}, interval={interval}min")
+    pub_list = [token.strip() for token in publishers.split(",") if token.strip()]
+    click.echo(
+        f"Scheduler: publishers={pub_list}, max_articles={max_articles}, "
+        f"interval={interval}min, workers={workers}"
+    )
 
-    run_cycle(pub_list, max_articles, language, batch_size)
+    run_cycle(pub_list, max_articles, language, batch_size, workers)
 
     if run_once:
         return
@@ -253,7 +262,7 @@ def main(publishers: str, max_articles: int, language: str | None, interval: int
     while True:
         click.echo(f"\nSleeping {interval} minutes until next cycle...")
         time.sleep(interval * 60)
-        run_cycle(pub_list, max_articles, language, batch_size)
+        run_cycle(pub_list, max_articles, language, batch_size, workers)
 
 
 if __name__ == "__main__":
