@@ -3,6 +3,7 @@ from sqlalchemy import select
 
 from fundus_recommend.db.session import SyncSessionLocal, sync_engine
 from fundus_recommend.models.db import Article, Base
+from fundus_recommend.services.date_resolution import resolve_article_publishing_date
 
 
 @click.command()
@@ -49,7 +50,7 @@ def main(publishers: str, max_articles: int, language: str | None) -> None:
                     topics=list(article.topics) if article.topics else [],
                     publisher=article.publisher,
                     language=article.lang,
-                    publishing_date=article.publishing_date,
+                    publishing_date=resolve_article_publishing_date(article),
                     cover_image_url=cover_url,
                 )
                 session.add(db_article)

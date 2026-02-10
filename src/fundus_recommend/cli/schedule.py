@@ -7,6 +7,7 @@ from sqlalchemy import select, update
 from fundus_recommend.db.session import SyncSessionLocal, sync_engine
 from fundus_recommend.models.db import Article, Base
 from fundus_recommend.services.categorizer import assign_category
+from fundus_recommend.services.date_resolution import resolve_article_publishing_date
 from fundus_recommend.services.dedup import run_dedup
 from fundus_recommend.services.embeddings import embed_texts, make_embedding_text
 from fundus_recommend.services.translation import translate_to_english
@@ -46,7 +47,7 @@ def crawl_articles(publisher_code: str, max_articles: int, language: str | None)
                 topics=list(article.topics) if article.topics else [],
                 publisher=article.publisher,
                 language=article.lang,
-                publishing_date=article.publishing_date,
+                publishing_date=resolve_article_publishing_date(article),
                 cover_image_url=cover_url,
             )
             session.add(db_article)
