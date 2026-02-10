@@ -9,14 +9,15 @@ from fundus_recommend.config import settings
 
 
 def _async_url_and_connect_args() -> tuple[str, dict]:
-    """Strip sslmode from the URL (asyncpg doesn't accept it) and pass SSL via connect_args."""
+    """Strip sslmode/channel_binding from the URL (asyncpg doesn't accept them) and pass SSL via connect_args."""
     url = settings.database_url
     if "sslmode=require" in url:
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-        # Remove sslmode param — asyncpg doesn't accept it as a URL/keyword arg
-        url = url.replace("?sslmode=require&", "?").replace("&sslmode=require", "").replace("?sslmode=require", "")
+        # Remove params that asyncpg doesn't accept as URL/keyword args
+        for param in ["sslmode=require", "channel_binding=require"]:
+            url = url.replace(f"?{param}&", "?").replace(f"&{param}", "").replace(f"?{param}", "")
         return url, {"ssl": ctx}
     return url, {}
 
