@@ -140,9 +140,9 @@ def refresh_stale_embeddings(max_age_days: int = 7, batch_size: int = 64) -> int
         return len(rows)
 
 
-def run_dedup_pass() -> int:
+def run_dedup_pass(new_article_ids: list[int] | None = None) -> int:
     with SyncSessionLocal() as session:
-        return run_dedup(session)
+        return run_dedup(session, new_article_ids)
 
 
 def get_dedup_stats() -> tuple[int, int, int]:
@@ -183,6 +183,7 @@ def run_cycle(publishers: list[str], max_articles: int, language: str | None, ba
     total_translated = 0
     total_embedded = 0
     total_categorized = 0
+    all_new_ids: list[int] = []
 
     for publisher_result in crawl_result.publisher_results:
         diag = publisher_result.diagnostics
@@ -192,6 +193,7 @@ def run_cycle(publishers: list[str], max_articles: int, language: str | None, ba
         categorized = 0
 
         if publisher_result.inserted_article_ids:
+            all_new_ids.extend(publisher_result.inserted_article_ids)
             translated = translate_new_articles(publisher_result.inserted_article_ids)
             embedded = embed_new_articles(publisher_result.inserted_article_ids, batch_size)
             categorized = categorize_new_articles(publisher_result.inserted_article_ids)
@@ -212,7 +214,7 @@ def run_cycle(publishers: list[str], max_articles: int, language: str | None, ba
         f"{total_embedded} embedded, {total_categorized} categorized"
     )
 
-    clustered = run_dedup_pass()
+    clustered = run_dedup_pass(all_new_ids)
     clustered_articles, cluster_count, max_cluster_size = get_dedup_stats()
     click.echo(
         "  Dedup: "

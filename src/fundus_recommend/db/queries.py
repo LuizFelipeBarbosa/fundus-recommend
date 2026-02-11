@@ -81,15 +81,11 @@ def _compute_popularity_scores(articles: list[Article], view_counts: dict[int, i
     return composite_scores(dates, views, weights, cluster_sizes, authorities)
 
 
-def _coverage_score(source_count: int, max_source_count: int) -> float:
-    if source_count <= 0:
+def _coverage_score(source_count: int) -> float:
+    """Absolute coverage score: 1 source → 0.0, 10+ sources → 1.0."""
+    if source_count <= 1:
         return 0.0
-    if max_source_count <= 0:
-        return 0.0
-    denominator = math.log1p(max_source_count)
-    if denominator <= 0.0:
-        return 0.0
-    return math.log1p(source_count) / denominator
+    return min(1.0, math.log1p(source_count) / math.log1p(10))
 
 
 def _recency_sort_key(article: Article) -> tuple[float, int]:
@@ -211,6 +207,10 @@ async def _build_tier_anchored_story_ranking(
         if not full_story_articles:
             continue
 
+        # Skip runaway transitive-chain clusters
+        if len(full_story_articles) > 200:
+            continue
+
         # Select lead article: prefer Tier 1 > Tier 2 > any
         tier_1_articles = [a for a in full_story_articles if publisher_tier(a.publisher) == 1]
         tier_2_articles = [a for a in full_story_articles if publisher_tier(a.publisher) == 2]
@@ -248,7 +248,6 @@ async def _build_tier_anchored_story_ranking(
     if not all_eligible_stories:
         return [], {}, {}
 
-    max_source_count = max(story.source_count for story in all_eligible_stories)
     lead_by_story_key: dict[str, Article] = {}
     source_count_by_story_key: dict[str, int] = {}
     final_score_by_story_key: dict[str, float] = {}
@@ -256,7 +255,7 @@ async def _build_tier_anchored_story_ranking(
     for story in all_eligible_stories:
         lead_by_story_key[story.story_key] = story.lead_article
         source_count_by_story_key[story.story_key] = story.source_count
-        coverage = _coverage_score(story.source_count, max_source_count)
+        coverage = _coverage_score(story.source_count)
         reputation = authority_score(story.lead_article.publisher)
         final_score_by_story_key[story.story_key] = (
             settings.top_story_score_popularity_weight * story.popularity_score
@@ -616,6 +615,64 @@ async def get_ranked_articles(
     return ranked_articles, total
 
 
+async def _fetch_top_cluster_articles(
+    session: AsyncSession,
+    min_cluster_size: int = 3,
+    max_cluster_size: int = 200,
+    cluster_limit: int = 50,
+    publisher: str | None = None,
+    language: str | None = None,
+    category: str | None = None,
+) -> list[Article]:
+    """Fetch one representative article per large cluster so big stories
+    always appear in the candidate set regardless of recency.
+
+    Clusters larger than *max_cluster_size* are excluded — they are
+    almost certainly runaway transitive-chain artefacts, not real stories.
+    """
+    size_query = (
+        select(
+            Article.dedup_cluster_id,
+            func.count(Article.id).label("cluster_size"),
+        )
+        .where(Article.embedding.is_not(None), Article.dedup_cluster_id.is_not(None))
+    )
+    if publisher:
+        size_query = size_query.where(Article.publisher == publisher)
+    if language:
+        size_query = size_query.where(Article.language == language)
+    if category:
+        size_query = size_query.where(Article.category == category)
+
+    size_query = (
+        size_query
+        .group_by(Article.dedup_cluster_id)
+        .having(
+            func.count(Article.id) >= min_cluster_size,
+            func.count(Article.id) <= max_cluster_size,
+        )
+        .order_by(func.count(Article.id).desc())
+        .limit(cluster_limit)
+    )
+    cluster_rows = await session.execute(size_query)
+    top_cluster_ids = [row[0] for row in cluster_rows.all()]
+
+    if not top_cluster_ids:
+        return []
+
+    # Fetch one article per cluster (the most recent) as a representative
+    from sqlalchemy import distinct
+    repr_query = (
+        select(Article)
+        .options(defer(Article.body), defer(Article.embedding))
+        .where(Article.dedup_cluster_id.in_(top_cluster_ids))
+        .distinct(Article.dedup_cluster_id)
+        .order_by(Article.dedup_cluster_id, Article.publishing_date.desc().nulls_last())
+    )
+    result = await session.execute(repr_query)
+    return list(result.scalars().all())
+
+
 async def get_ranked_stories(
     session: AsyncSession,
     page: int = 1,
@@ -624,25 +681,30 @@ async def get_ranked_stories(
     language: str | None = None,
     topic: str | None = None,
     category: str | None = None,
-    candidate_limit: int = 200,
+    candidate_limit: int = 500,
 ) -> tuple[list[RankedStory], int]:
-    query = select(Article).options(defer(Article.body), defer(Article.embedding)).where(Article.embedding.is_not(None))
+    base_filter = select(Article).options(defer(Article.body), defer(Article.embedding)).where(Article.embedding.is_not(None))
 
     if publisher:
-        query = query.where(Article.publisher == publisher)
+        base_filter = base_filter.where(Article.publisher == publisher)
     if language:
-        query = query.where(Article.language == language)
+        base_filter = base_filter.where(Article.language == language)
     if topic:
-        query = query.where(Article.topics.any(topic))
+        base_filter = base_filter.where(Article.topics.any(topic))
     if category:
-        query = query.where(Article.category == category)
+        base_filter = base_filter.where(Article.category == category)
 
-    # Fetch only the most recent candidates — freshness-weighted ranking makes
-    # older articles score near-zero anyway (48h half-life), so loading all rows
-    # wastes bandwidth, especially with a remote database.
-    query = query.order_by(Article.publishing_date.desc().nulls_last()).limit(candidate_limit)
-    result = await session.execute(query)
+    # Pass 1: most recent articles (standalone + small clusters)
+    recency_query = base_filter.order_by(Article.publishing_date.desc().nulls_last()).limit(candidate_limit)
+    result = await session.execute(recency_query)
     articles = list(result.scalars().all())
+
+    # Pass 2: ensure large clusters are represented even if not recent
+    cluster_reps = await _fetch_top_cluster_articles(
+        session, min_cluster_size=3, cluster_limit=50,
+        publisher=publisher, language=language, category=category,
+    )
+    articles.extend(cluster_reps)
 
     if not articles:
         return [], 0
@@ -658,6 +720,14 @@ async def get_ranked_stories(
         articles,
         popularity_score_by_article_id,
     )
+
+    # When a category filter is active, drop stories whose lead article
+    # doesn't match — cluster expansion can pull in cross-category leads.
+    if category:
+        ordered_story_keys = [
+            sk for sk in ordered_story_keys
+            if getattr(lead_by_story_key[sk], "category", None) == category
+        ]
 
     total_stories = len(ordered_story_keys)
     offset = (page - 1) * page_size

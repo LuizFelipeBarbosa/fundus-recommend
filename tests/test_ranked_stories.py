@@ -76,6 +76,7 @@ class RankedStoriesTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("fundus_recommend.db.queries.get_view_counts", return_value={}),
+            patch("fundus_recommend.db.queries._fetch_top_cluster_articles", return_value=[]),
             patch(
                 "fundus_recommend.db.queries.composite_scores",
                 return_value=np.array([0.80, 0.90, 0.99, 0.20, 0.10, 0.95]),
@@ -125,6 +126,7 @@ class RankedStoriesTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("fundus_recommend.db.queries.get_view_counts", return_value={}),
+            patch("fundus_recommend.db.queries._fetch_top_cluster_articles", return_value=[]),
             patch(
                 "fundus_recommend.db.queries.composite_scores",
                 return_value=np.array([0.95, 0.94, 0.93, 0.40, 0.30]),
@@ -132,14 +134,14 @@ class RankedStoriesTests(unittest.IsolatedAsyncioTestCase):
         ):
             stories, total = await get_ranked_stories(session, page=1, page_size=5)
 
-        # All three clusters included: 600 (best coverage), 400 (Tier 1 lead), 500
+        # All three clusters included: 400 (Tier 1 lead + coverage), 600 (most sources), 500
         self.assertEqual(total, 3)
         self.assertEqual(
             [story.story_id for story in stories],
-            ["cluster:600", "cluster:400", "cluster:500"],
+            ["cluster:400", "cluster:600", "cluster:500"],
         )
-        self.assertEqual(stories[0].lead_article.id, 12)
-        self.assertEqual(stories[1].lead_article.id, 10)
+        self.assertEqual(stories[0].lead_article.id, 10)
+        self.assertEqual(stories[1].lead_article.id, 12)
         self.assertEqual(stories[2].lead_article.id, 11)
 
     async def test_get_ranked_stories_includes_standalone_articles(self) -> None:
@@ -164,6 +166,7 @@ class RankedStoriesTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("fundus_recommend.db.queries.get_view_counts", return_value={}),
+            patch("fundus_recommend.db.queries._fetch_top_cluster_articles", return_value=[]),
             patch(
                 "fundus_recommend.db.queries.composite_scores",
                 return_value=np.array([0.90, 0.80, 0.85, 0.70]),

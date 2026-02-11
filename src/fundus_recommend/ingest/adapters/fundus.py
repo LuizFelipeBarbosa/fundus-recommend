@@ -66,6 +66,10 @@ class FundusAdapter(BaseAdapter):
 
             url = getattr(article.html, "responded_url", None) or getattr(article.html, "requested_url", None)
             title = getattr(article, "title", None)
+            if not isinstance(title, str):
+                status_histogram["parse_error"] = status_histogram.get("parse_error", 0) + 1
+                output.skipped_count += 1
+                continue
             body = str(getattr(article, "body", "") or "")
             if not url or not title or not body:
                 status_histogram["parse_error"] = status_histogram.get("parse_error", 0) + 1

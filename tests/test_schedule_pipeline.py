@@ -39,7 +39,7 @@ class SchedulePipelineTests(unittest.TestCase):
         mock_translate,
         mock_embed,
         mock_categorize,
-        _mock_dedup,
+        mock_dedup,
         _mock_refresh,
     ) -> None:
         events: list[str] = []
@@ -58,6 +58,7 @@ class SchedulePipelineTests(unittest.TestCase):
         mock_translate.assert_called_once_with([1, 2])
         mock_embed.assert_called_once_with([1, 2], 64)
         mock_categorize.assert_called_once_with([1, 2])
+        mock_dedup.assert_called_once_with([1, 2])
 
     @patch("fundus_recommend.cli.schedule.refresh_stale_embeddings", return_value=0)
     @patch("fundus_recommend.cli.schedule.run_dedup_pass", return_value=0)
@@ -71,7 +72,7 @@ class SchedulePipelineTests(unittest.TestCase):
         mock_translate,
         mock_embed,
         mock_categorize,
-        _mock_dedup,
+        mock_dedup,
         _mock_refresh,
     ) -> None:
         mock_crawl_once.return_value = CrawlRunResult(
@@ -85,6 +86,7 @@ class SchedulePipelineTests(unittest.TestCase):
         mock_translate.assert_not_called()
         mock_embed.assert_not_called()
         mock_categorize.assert_not_called()
+        mock_dedup.assert_called_once_with([])
 
 
 if __name__ == "__main__":
