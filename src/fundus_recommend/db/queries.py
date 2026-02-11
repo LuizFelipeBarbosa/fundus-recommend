@@ -10,7 +10,7 @@ from sqlalchemy.orm import defer
 from fundus_recommend.config import settings
 from fundus_recommend.models.db import Article, ArticleView, User, UserPreference
 from fundus_recommend.services.embeddings import embed_single
-from fundus_recommend.services.publisher_authority import authority_score
+from fundus_recommend.services.publisher_authority import authority_score, publisher_tier
 from fundus_recommend.services.ranking import RankingWeights, composite_scores
 
 
@@ -20,6 +20,14 @@ class RankedStory:
     dedup_cluster_id: int | None
     lead_article: Article
     articles: list[Article]
+
+
+@dataclass
+class _EligibleStory:
+    story_key: str
+    lead_article: Article
+    source_count: int
+    popularity_score: float
 
 
 def _as_utc_timestamp(dt: datetime | None) -> float:
@@ -73,69 +81,6 @@ def _compute_popularity_scores(articles: list[Article], view_counts: dict[int, i
     return composite_scores(dates, views, weights, cluster_sizes, authorities)
 
 
-def _rank_story_leads_by_popularity(
-    articles: list[Article],
-    scores: np.ndarray,
-    exclude_story_key: str | None = None,
-) -> tuple[list[str], dict[str, Article], dict[str, float]]:
-    ranked_indices = sorted(
-        range(len(articles)),
-        key=lambda i: (
-            -float(scores[i]),
-            -_as_utc_timestamp(articles[i].publishing_date),
-            -articles[i].id,
-        ),
-    )
-
-    ordered_story_keys: list[str] = []
-    lead_by_story_key: dict[str, Article] = {}
-    score_by_story_key: dict[str, float] = {}
-
-    for idx in ranked_indices:
-        article = articles[idx]
-        story_key = _story_key(article)
-        if exclude_story_key is not None and story_key == exclude_story_key:
-            continue
-        if story_key in lead_by_story_key:
-            continue
-        ordered_story_keys.append(story_key)
-        lead_by_story_key[story_key] = article
-        score_by_story_key[story_key] = float(scores[idx])
-
-    return ordered_story_keys, lead_by_story_key, score_by_story_key
-
-
-async def _get_story_source_counts(
-    session: AsyncSession,
-    lead_by_story_key: dict[str, Article],
-) -> dict[str, int]:
-    source_count_by_story_key: dict[str, int] = {story_key: 1 for story_key in lead_by_story_key}
-    cluster_ids = sorted(
-        {
-            article.dedup_cluster_id
-            for article in lead_by_story_key.values()
-            if article.dedup_cluster_id is not None
-        }
-    )
-    if not cluster_ids:
-        return source_count_by_story_key
-
-    result = await session.execute(
-        select(Article.dedup_cluster_id, func.count(Article.id))
-        .where(Article.dedup_cluster_id.in_(cluster_ids))
-        .group_by(Article.dedup_cluster_id)
-    )
-    cluster_count_map = {int(cluster_id): int(count) for cluster_id, count in result.all() if cluster_id is not None}
-
-    for story_key, lead_article in lead_by_story_key.items():
-        if lead_article.dedup_cluster_id is None:
-            source_count_by_story_key[story_key] = 1
-        else:
-            source_count_by_story_key[story_key] = cluster_count_map.get(lead_article.dedup_cluster_id, 1)
-
-    return source_count_by_story_key
-
-
 def _coverage_score(source_count: int, max_source_count: int) -> float:
     if source_count <= 0:
         return 0.0
@@ -147,66 +92,200 @@ def _coverage_score(source_count: int, max_source_count: int) -> float:
     return math.log1p(source_count) / denominator
 
 
-def _rank_story_leads_by_quality(
-    lead_by_story_key: dict[str, Article],
-    popularity_score_by_story_key: dict[str, float],
-    source_count_by_story_key: dict[str, int],
-) -> tuple[list[str], dict[str, float]]:
-    if not lead_by_story_key:
-        return [], {}
+def _recency_sort_key(article: Article) -> tuple[float, int]:
+    return (-_as_utc_timestamp(article.publishing_date), -article.id)
 
-    max_source_count = max(source_count_by_story_key.values()) if source_count_by_story_key else 1
+
+def _lead_priority_tuple(
+    article: Article,
+    popularity_score_by_article_id: dict[int, float],
+) -> tuple[float, float, int]:
+    return (
+        popularity_score_by_article_id.get(article.id, float("-inf")),
+        _as_utc_timestamp(article.publishing_date),
+        article.id,
+    )
+
+
+async def _fetch_cluster_articles(
+    session: AsyncSession,
+    cluster_ids: list[int],
+) -> dict[int, list[Article]]:
+    if not cluster_ids:
+        return {}
+
+    result = await session.execute(
+        select(Article)
+        .options(defer(Article.body), defer(Article.embedding))
+        .where(Article.dedup_cluster_id.in_(cluster_ids))
+        .order_by(
+            Article.dedup_cluster_id.asc(),
+            Article.publishing_date.desc().nulls_last(),
+            Article.id.desc(),
+        )
+    )
+
+    story_articles_by_cluster: dict[int, list[Article]] = {}
+    for article in result.scalars().all():
+        cluster_id = article.dedup_cluster_id
+        if cluster_id is None:
+            continue
+        story_articles_by_cluster.setdefault(cluster_id, []).append(article)
+
+    return story_articles_by_cluster
+
+
+def _order_story_articles(lead_article: Article, story_articles: list[Article]) -> list[Article]:
+    # Preserve lead article identity in the response, then order supporters by tier and recency.
+    deduped = _dedupe_articles_by_id([lead_article, *story_articles])
+    tier_buckets: dict[int, list[Article]] = {1: [], 2: [], 3: []}
+
+    for article in deduped:
+        if article.id == lead_article.id:
+            continue
+        tier_buckets[publisher_tier(article.publisher)].append(article)
+
+    for tier in (1, 2, 3):
+        tier_buckets[tier].sort(key=_recency_sort_key)
+
+    return _dedupe_articles_by_id(
+        [
+            lead_article,
+            *tier_buckets[1],
+            *tier_buckets[2],
+            *tier_buckets[3],
+        ]
+    )
+
+
+def _story_quality_sort_key(
+    story_key: str,
+    final_score_by_story_key: dict[str, float],
+    source_count_by_story_key: dict[str, int],
+    lead_by_story_key: dict[str, Article],
+) -> tuple[float, int, float, int]:
+    lead_article = lead_by_story_key[story_key]
+    return (
+        -final_score_by_story_key[story_key],
+        -source_count_by_story_key.get(story_key, 1),
+        -_as_utc_timestamp(lead_article.publishing_date),
+        -lead_article.id,
+    )
+
+
+async def _build_tier_anchored_story_ranking(
+    session: AsyncSession,
+    candidate_articles: list[Article],
+    popularity_score_by_article_id: dict[int, float],
+    exclude_story_key: str | None = None,
+) -> tuple[list[str], dict[str, Article], dict[str, float]]:
+    if not candidate_articles:
+        return [], {}, {}
+
+    candidate_by_story_key: dict[str, list[Article]] = {}
+    cluster_ids: set[int] = set()
+
+    for article in candidate_articles:
+        story_key = _story_key(article)
+        if exclude_story_key is not None and story_key == exclude_story_key:
+            continue
+        candidate_by_story_key.setdefault(story_key, []).append(article)
+        if article.dedup_cluster_id is not None:
+            cluster_ids.add(article.dedup_cluster_id)
+
+    if not candidate_by_story_key:
+        return [], {}, {}
+
+    story_articles_by_cluster = await _fetch_cluster_articles(session, sorted(cluster_ids))
+    tier1_candidates: list[_EligibleStory] = []
+    tier2_fallback_candidates: list[_EligibleStory] = []
+
+    for story_key, story_candidate_articles in candidate_by_story_key.items():
+        first_article = story_candidate_articles[0]
+        cluster_id = first_article.dedup_cluster_id
+        full_story_articles = (
+            story_articles_by_cluster.get(cluster_id, story_candidate_articles)
+            if cluster_id is not None
+            else story_candidate_articles
+        )
+        full_story_articles = _dedupe_articles_by_id(full_story_articles)
+        if not full_story_articles:
+            continue
+
+        tier_1_articles = [article for article in full_story_articles if publisher_tier(article.publisher) == 1]
+        tier_2_articles = [article for article in full_story_articles if publisher_tier(article.publisher) == 2]
+        tier_3_articles = [article for article in full_story_articles if publisher_tier(article.publisher) == 3]
+
+        if tier_1_articles and (len(tier_2_articles) + len(tier_3_articles)) >= 2:
+            lead_pool = tier_1_articles
+            is_tier1_anchored = True
+        elif not tier_1_articles and tier_2_articles and len(tier_3_articles) >= 2:
+            lead_pool = tier_2_articles
+            is_tier1_anchored = False
+        else:
+            continue
+
+        lead_article = max(
+            lead_pool,
+            key=lambda article: _lead_priority_tuple(article, popularity_score_by_article_id),
+        )
+
+        lead_popularity_score = popularity_score_by_article_id.get(lead_article.id, float("-inf"))
+        if lead_popularity_score == float("-inf"):
+            lead_popularity_score = max(
+                (popularity_score_by_article_id.get(article.id, float("-inf")) for article in story_candidate_articles),
+                default=0.0,
+            )
+        if lead_popularity_score == float("-inf"):
+            lead_popularity_score = 0.0
+
+        eligible_story = _EligibleStory(
+            story_key=story_key,
+            lead_article=lead_article,
+            source_count=len(full_story_articles),
+            popularity_score=float(lead_popularity_score),
+        )
+
+        if is_tier1_anchored:
+            tier1_candidates.append(eligible_story)
+        else:
+            tier2_fallback_candidates.append(eligible_story)
+
+    all_eligible_stories = [*tier1_candidates, *tier2_fallback_candidates]
+    if not all_eligible_stories:
+        return [], {}, {}
+
+    max_source_count = max(story.source_count for story in all_eligible_stories)
+    lead_by_story_key: dict[str, Article] = {}
+    source_count_by_story_key: dict[str, int] = {}
     final_score_by_story_key: dict[str, float] = {}
 
-    for story_key, lead_article in lead_by_story_key.items():
-        popularity_score = popularity_score_by_story_key.get(story_key, 0.0)
-        source_count = source_count_by_story_key.get(story_key, 1)
-        coverage_score = _coverage_score(source_count, max_source_count)
-        reputation_score = authority_score(lead_article.publisher)
-
-        final_score_by_story_key[story_key] = (
-            settings.top_story_score_popularity_weight * popularity_score
+    for story in all_eligible_stories:
+        lead_by_story_key[story.story_key] = story.lead_article
+        source_count_by_story_key[story.story_key] = story.source_count
+        coverage_score = _coverage_score(story.source_count, max_source_count)
+        reputation_score = authority_score(story.lead_article.publisher)
+        final_score_by_story_key[story.story_key] = (
+            settings.top_story_score_popularity_weight * story.popularity_score
             + settings.top_story_score_coverage_weight * coverage_score
             + settings.top_story_score_reputation_weight * reputation_score
         )
 
-    min_sources = max(settings.top_story_min_sources, 1)
-    remaining_story_keys = set(lead_by_story_key)
-    ordered_story_keys: list[str] = []
-
-    for source_threshold in range(min_sources, 0, -1):
-        tier_story_keys = [
-            story_key
-            for story_key in remaining_story_keys
-            if source_count_by_story_key.get(story_key, 1) >= source_threshold
-        ]
-        tier_story_keys.sort(
-            key=lambda story_key: (
-                -final_score_by_story_key[story_key],
-                -source_count_by_story_key.get(story_key, 1),
-                -_as_utc_timestamp(lead_by_story_key[story_key].publishing_date),
-                -lead_by_story_key[story_key].id,
-            )
+    tier1_story_keys = [story.story_key for story in tier1_candidates]
+    tier2_story_keys = [story.story_key for story in tier2_fallback_candidates]
+    tier1_story_keys.sort(
+        key=lambda story_key: _story_quality_sort_key(
+            story_key, final_score_by_story_key, source_count_by_story_key, lead_by_story_key
         )
-
-        ordered_story_keys.extend(tier_story_keys)
-        remaining_story_keys.difference_update(tier_story_keys)
-        if not remaining_story_keys:
-            break
-
-    if remaining_story_keys:
-        tail_story_keys = sorted(
-            remaining_story_keys,
-            key=lambda story_key: (
-                -final_score_by_story_key[story_key],
-                -source_count_by_story_key.get(story_key, 1),
-                -_as_utc_timestamp(lead_by_story_key[story_key].publishing_date),
-                -lead_by_story_key[story_key].id,
-            ),
+    )
+    tier2_story_keys.sort(
+        key=lambda story_key: _story_quality_sort_key(
+            story_key, final_score_by_story_key, source_count_by_story_key, lead_by_story_key
         )
-        ordered_story_keys.extend(tail_story_keys)
+    )
 
-    return ordered_story_keys, final_score_by_story_key
+    ordered_story_keys = [*tier1_story_keys, *tier2_story_keys]
+    return ordered_story_keys, lead_by_story_key, final_score_by_story_key
 
 
 async def _expand_ranked_stories(
@@ -225,23 +304,7 @@ async def _expand_ranked_stories(
         }
     )
 
-    story_articles_by_cluster: dict[int, list[Article]] = {}
-    if page_cluster_ids:
-        cluster_result = await session.execute(
-            select(Article)
-            .options(defer(Article.body), defer(Article.embedding))
-            .where(Article.dedup_cluster_id.in_(page_cluster_ids))
-            .order_by(
-                Article.dedup_cluster_id.asc(),
-                Article.publishing_date.desc().nulls_last(),
-                Article.id.desc(),
-            )
-        )
-        for article in cluster_result.scalars().all():
-            cluster_id = article.dedup_cluster_id
-            if cluster_id is None:
-                continue
-            story_articles_by_cluster.setdefault(cluster_id, []).append(article)
+    story_articles_by_cluster = await _fetch_cluster_articles(session, page_cluster_ids)
 
     stories: list[RankedStory] = []
     for story_key in story_keys:
@@ -253,7 +316,7 @@ async def _expand_ranked_stories(
         else:
             grouped_articles = story_articles_by_cluster.get(cluster_id, [])
             if grouped_articles:
-                story_articles = [lead_article] + [a for a in grouped_articles if a.id != lead_article.id]
+                story_articles = _order_story_articles(lead_article, grouped_articles)
             else:
                 story_articles = [lead_article]
 
@@ -284,16 +347,14 @@ async def _rank_story_candidates(
 
     view_counts = await get_view_counts(session)
     scores = _compute_popularity_scores(articles, view_counts)
-    _ordered_story_keys, lead_by_story_key, popularity_score_by_story_key = _rank_story_leads_by_popularity(
+    popularity_score_by_article_id = {
+        article.id: float(scores[idx]) for idx, article in enumerate(articles)
+    }
+    ordered_story_keys, lead_by_story_key, final_score_by_story_key = await _build_tier_anchored_story_ranking(
+        session,
         articles,
-        scores,
-        exclude_story_key,
-    )
-    source_count_by_story_key = await _get_story_source_counts(session, lead_by_story_key)
-    ordered_story_keys, final_score_by_story_key = _rank_story_leads_by_quality(
-        lead_by_story_key,
-        popularity_score_by_story_key,
-        source_count_by_story_key,
+        popularity_score_by_article_id,
+        exclude_story_key=exclude_story_key,
     )
     selected_story_keys = ordered_story_keys[:limit]
     stories = await _expand_ranked_stories(session, lead_by_story_key, selected_story_keys)
@@ -601,16 +662,16 @@ async def get_ranked_stories(
     if not articles:
         return [], 0
 
+    articles = _dedupe_articles_by_id(articles)
     view_counts = await get_view_counts(session)
     scores = _compute_popularity_scores(articles, view_counts)
-    _ordered_story_keys, lead_by_story_key, popularity_score_by_story_key = _rank_story_leads_by_popularity(
-        articles, scores
-    )
-    source_count_by_story_key = await _get_story_source_counts(session, lead_by_story_key)
-    ordered_story_keys, _final_score_by_story_key = _rank_story_leads_by_quality(
-        lead_by_story_key,
-        popularity_score_by_story_key,
-        source_count_by_story_key,
+    popularity_score_by_article_id = {
+        article.id: float(scores[idx]) for idx, article in enumerate(articles)
+    }
+    ordered_story_keys, lead_by_story_key, _final_score_by_story_key = await _build_tier_anchored_story_ranking(
+        session,
+        articles,
+        popularity_score_by_article_id,
     )
 
     total_stories = len(ordered_story_keys)

@@ -143,10 +143,20 @@ _TIER_2: frozenset[str] = frozenset(
 _DEFAULT_SCORE: float = 0.4
 
 
+def publisher_tier(publisher: str) -> int:
+    """Return publisher tier: 1 (highest), 2, or 3 (default)."""
+    if publisher in _TIER_1:
+        return 1
+    if publisher in _TIER_2:
+        return 2
+    return 3
+
+
 def authority_score(publisher: str) -> float:
     """Return an authority score in [0.0, 1.0] for *publisher*."""
-    if publisher in _TIER_1:
+    tier = publisher_tier(publisher)
+    if tier == 1:
         return 1.0
-    if publisher in _TIER_2:
+    if tier == 2:
         return 0.7
     return _DEFAULT_SCORE

@@ -37,126 +37,96 @@ class _FakeExecuteResult:
 
 
 class RankedStoriesTests(unittest.IsolatedAsyncioTestCase):
-    async def test_get_ranked_stories_collapses_clusters_and_expands_all_sources(self) -> None:
+    async def test_get_ranked_stories_prioritizes_tier1_anchored_stories(self) -> None:
         candidates = [
             _article(1, 100, "Reuters", 12),
-            _article(2, 100, "AP", 11),
-            _article(3, 200, "BBC", 10),
-            _article(4, None, "CNN", 9),
-            _article(5, 200, "Al Jazeera", 8),
+            _article(2, 100, "Nytimes", 11),
+            _article(5, 200, "Politico", 12),
+            _article(6, 200, "Local Gazette 1", 11),
+            _article(7, 200, "Local Gazette 2", 10),
+            _article(8, 300, "Reuters", 9),
         ]
-        source_counts = [
-            (100, 3),
-            (200, 3),
-        ]
-        # Includes extra source 6 for cluster 100 that is not in the ranked candidate list.
-        cluster_members = [
-            _article(6, 100, "The Verge", 13),
+        all_cluster_articles = [
             _article(1, 100, "Reuters", 12),
-            _article(2, 100, "AP", 11),
-            _article(3, 200, "BBC", 10),
-            _article(5, 200, "Al Jazeera", 8),
-            _article(8, 200, "The Guardian", 7),
+            _article(2, 100, "Nytimes", 11),
+            _article(3, 100, "Politico", 13),
+            _article(4, 100, "Local Gazette 3", 10),
+            _article(5, 200, "Politico", 12),
+            _article(6, 200, "Local Gazette 1", 11),
+            _article(7, 200, "Local Gazette 2", 10),
+            _article(8, 300, "Reuters", 9),
+        ]
+        expanded_story_articles = [
+            _article(1, 100, "Reuters", 12),
+            _article(2, 100, "Nytimes", 11),
+            _article(3, 100, "Politico", 13),
+            _article(4, 100, "Local Gazette 3", 10),
+            _article(5, 200, "Politico", 12),
+            _article(6, 200, "Local Gazette 1", 11),
+            _article(7, 200, "Local Gazette 2", 10),
         ]
 
         session = AsyncMock()
         session.execute.side_effect = [
             _FakeExecuteResult(candidates),
-            _FakeExecuteResult(source_counts),
-            _FakeExecuteResult(cluster_members),
+            _FakeExecuteResult(all_cluster_articles),
+            _FakeExecuteResult(expanded_story_articles),
         ]
 
         with (
             patch("fundus_recommend.db.queries.get_view_counts", return_value={}),
             patch(
                 "fundus_recommend.db.queries.composite_scores",
-                return_value=np.array([0.91, 0.89, 0.88, 0.40, 0.30]),
+                return_value=np.array([0.80, 0.90, 0.99, 0.20, 0.10, 0.95]),
             ),
-            patch("fundus_recommend.db.queries.authority_score", return_value=1.0),
-        ):
-            stories, total = await get_ranked_stories(session, page=1, page_size=2)
-
-        self.assertEqual(total, 3)
-        self.assertEqual([story.story_id for story in stories], ["cluster:100", "cluster:200"])
-        self.assertEqual(stories[0].lead_article.id, 1)
-        self.assertEqual([article.id for article in stories[0].articles], [1, 6, 2])
-        self.assertEqual(stories[1].lead_article.id, 3)
-        self.assertEqual([article.id for article in stories[1].articles], [3, 5, 8])
-
-    async def test_get_ranked_stories_source_floor_priority_then_stepwise_fallback(self) -> None:
-        candidates = [
-            _article(1, 100, "Reuters", 12),  # source_count=3 (tier A)
-            _article(2, 200, "Reuters", 11),  # source_count=2 (tier B), but highest popularity
-            _article(3, None, "Reuters", 10),  # source_count=1 (tier C)
-        ]
-        source_counts = [
-            (100, 3),
-            (200, 2),
-        ]
-        cluster_members = [
-            _article(1, 100, "Reuters", 12),
-            _article(9, 100, "AP", 11),
-            _article(10, 100, "BBC", 10),
-            _article(2, 200, "Reuters", 11),
-            _article(11, 200, "AP", 10),
-        ]
-
-        session = AsyncMock()
-        session.execute.side_effect = [
-            _FakeExecuteResult(candidates),
-            _FakeExecuteResult(source_counts),
-            _FakeExecuteResult(cluster_members),
-        ]
-
-        with (
-            patch("fundus_recommend.db.queries.get_view_counts", return_value={}),
-            patch(
-                "fundus_recommend.db.queries.composite_scores",
-                return_value=np.array([0.50, 0.95, 0.90]),
-            ),
-            patch("fundus_recommend.db.queries.authority_score", return_value=1.0),
         ):
             stories, total = await get_ranked_stories(session, page=1, page_size=3)
 
-        self.assertEqual(total, 3)
-        self.assertEqual([story.story_id for story in stories], ["cluster:100", "cluster:200", "article:3"])
-        self.assertEqual([article.id for article in stories[0].articles], [1, 9, 10])
-        self.assertEqual([article.id for article in stories[1].articles], [2, 11])
-        self.assertEqual([article.id for article in stories[2].articles], [3])
+        self.assertEqual(total, 2)
+        self.assertEqual([story.story_id for story in stories], ["cluster:100", "cluster:200"])
+        self.assertEqual(stories[0].lead_article.id, 2)
+        self.assertEqual([article.id for article in stories[0].articles], [2, 1, 3, 4])
+        self.assertEqual(stories[1].lead_article.id, 5)
+        self.assertEqual([article.id for article in stories[1].articles], [5, 6, 7])
 
-    async def test_get_ranked_stories_page_two_returns_singleton_story(self) -> None:
+    async def test_get_ranked_stories_enforces_corroboration_gates(self) -> None:
         candidates = [
-            _article(1, 100, "Reuters", 12),
-            _article(2, 100, "AP", 11),
-            _article(3, 200, "BBC", 10),
-            _article(4, None, "CNN", 9),
-            _article(5, 200, "Al Jazeera", 8),
+            _article(10, 400, "Reuters", 12),
+            _article(11, 500, "Politico", 11),
+            _article(12, 600, "Politico", 10),
+            _article(13, 600, "Local Outlet A", 9),
+            _article(14, 600, "Local Outlet B", 8),
         ]
-        source_counts = [
-            (100, 3),
-            (200, 2),
+        cluster_articles = [
+            _article(10, 400, "Reuters", 12),
+            _article(40, 400, "Local Outlet C", 11),  # one lower-tier only -> invalid
+            _article(11, 500, "Politico", 11),
+            _article(50, 500, "Local Outlet D", 10),  # one tier3 only -> invalid fallback
+            _article(12, 600, "Politico", 10),
+            _article(13, 600, "Local Outlet A", 9),
+            _article(14, 600, "Local Outlet B", 8),
         ]
 
         session = AsyncMock()
         session.execute.side_effect = [
             _FakeExecuteResult(candidates),
-            _FakeExecuteResult(source_counts),
+            _FakeExecuteResult(cluster_articles),
+            _FakeExecuteResult(cluster_articles),
         ]
 
         with (
             patch("fundus_recommend.db.queries.get_view_counts", return_value={}),
             patch(
                 "fundus_recommend.db.queries.composite_scores",
-                return_value=np.array([0.91, 0.89, 0.88, 0.40, 0.30]),
+                return_value=np.array([0.95, 0.94, 0.93, 0.40, 0.30]),
             ),
-            patch("fundus_recommend.db.queries.authority_score", return_value=1.0),
         ):
-            stories, total = await get_ranked_stories(session, page=2, page_size=2)
+            stories, total = await get_ranked_stories(session, page=1, page_size=5)
 
-        self.assertEqual(total, 3)
-        self.assertEqual(len(stories), 1)
-        self.assertEqual(stories[0].story_id, "article:4")
-        self.assertEqual([article.id for article in stories[0].articles], [4])
+        self.assertEqual(total, 1)
+        self.assertEqual([story.story_id for story in stories], ["cluster:600"])
+        self.assertEqual(stories[0].lead_article.id, 12)
+        self.assertEqual([article.id for article in stories[0].articles], [12, 13, 14])
 
 
 if __name__ == "__main__":

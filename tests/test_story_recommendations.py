@@ -49,28 +49,30 @@ class _FakeExecuteResult:
 
 
 class StoryRecommendationsQueryTests(unittest.IsolatedAsyncioTestCase):
-    async def test_recommend_stories_by_topic_applies_source_floor_and_expands_all_sources(self) -> None:
+    async def test_recommend_stories_by_topic_uses_tier_policy_and_story_limit(self) -> None:
         candidates = [
-            _article(1, 100, "Reuters", 12),  # source_count=3 (tier A)
-            _article(2, 200, "AP", 11),  # source_count=2 (tier B) but highest popularity
-            _article(3, None, "CNN", 10),  # source_count=1 (tier C)
-        ]
-        source_counts = [
-            (100, 3),
-            (200, 2),
-        ]
-        expanded_clusters = [
-            _article(6, 100, "BBC", 13),
             _article(1, 100, "Reuters", 12),
-            _article(7, 100, "Guardian", 11),
-            _article(2, 200, "AP", 11),
-            _article(8, 200, "Bloomberg", 10),
+            _article(2, 100, "Nytimes", 11),
+            _article(3, 100, "Politico", 10),
+            _article(4, 100, "Local Desk A", 9),
+            _article(5, 200, "Politico", 12),
+            _article(6, 200, "Local Desk B", 11),
+            _article(7, 200, "Local Desk C", 10),
+        ]
+        cluster_articles = [
+            _article(1, 100, "Reuters", 12),
+            _article(2, 100, "Nytimes", 11),
+            _article(3, 100, "Politico", 10),
+            _article(4, 100, "Local Desk A", 9),
+            _article(5, 200, "Politico", 12),
+            _article(6, 200, "Local Desk B", 11),
+            _article(7, 200, "Local Desk C", 10),
         ]
 
         session = AsyncMock()
         session.execute.side_effect = [
-            _FakeExecuteResult(source_counts),
-            _FakeExecuteResult(expanded_clusters),
+            _FakeExecuteResult(cluster_articles),
+            _FakeExecuteResult(cluster_articles),
         ]
 
         with (
@@ -81,35 +83,41 @@ class StoryRecommendationsQueryTests(unittest.IsolatedAsyncioTestCase):
             patch("fundus_recommend.db.queries.get_view_counts", return_value={}),
             patch(
                 "fundus_recommend.db.queries.composite_scores",
-                return_value=np.array([0.50, 0.95, 0.90]),
+                return_value=np.array([0.88, 0.87, 0.86, 0.30, 0.99, 0.20, 0.10]),
             ),
-            patch("fundus_recommend.db.queries.authority_score", return_value=1.0),
         ):
-            results = await recommend_stories_by_topic(session, "ai policy", limit=2, candidate_limit=50)
+            results = await recommend_stories_by_topic(session, "geopolitics", limit=2, candidate_limit=50)
 
-        self.assertEqual(len(results), 2)
         self.assertEqual([story.story_id for story, _score in results], ["cluster:100", "cluster:200"])
-        self.assertEqual([article.id for article in results[0][0].articles], [1, 6, 7])
-        self.assertEqual([article.id for article in results[1][0].articles], [2, 8])
+        self.assertEqual(results[0][0].lead_article.id, 1)
+        self.assertEqual([article.id for article in results[0][0].articles], [1, 2, 3, 4])
+        self.assertEqual(results[1][0].lead_article.id, 5)
+        self.assertEqual([article.id for article in results[1][0].articles], [5, 6, 7])
 
     async def test_recommend_stories_similar_excludes_source_story(self) -> None:
         source_article = _article(10, 500, "Reuters", 12, with_embedding=True)
         similar_candidates = [
-            _article(11, 500, "AP", 11),  # same story as source; should be excluded
-            _article(12, 600, "BBC", 10),
-            _article(13, None, "CNN", 9),
+            _article(11, 500, "Nytimes", 11),  # excluded same story
+            _article(12, 600, "Reuters", 10),
+            _article(13, 600, "Politico", 9),
+            _article(14, 600, "Local A", 8),
+            _article(15, 700, "Politico", 10),
+            _article(16, 700, "Local B", 9),
+            _article(17, 700, "Local C", 8),
         ]
-        source_counts = [(600, 3)]
-        expanded_cluster_600 = [
-            _article(14, 600, "Sky News", 12),
-            _article(12, 600, "BBC", 10),
-            _article(15, 600, "Reuters", 9),
+        cluster_articles = [
+            _article(12, 600, "Reuters", 10),
+            _article(13, 600, "Politico", 9),
+            _article(14, 600, "Local A", 8),
+            _article(15, 700, "Politico", 10),
+            _article(16, 700, "Local B", 9),
+            _article(17, 700, "Local C", 8),
         ]
 
         session = AsyncMock()
         session.execute.side_effect = [
-            _FakeExecuteResult(source_counts),
-            _FakeExecuteResult(expanded_cluster_600),
+            _FakeExecuteResult(cluster_articles),
+            _FakeExecuteResult(cluster_articles),
         ]
 
         with (
@@ -121,140 +129,55 @@ class StoryRecommendationsQueryTests(unittest.IsolatedAsyncioTestCase):
             patch("fundus_recommend.db.queries.get_view_counts", return_value={}),
             patch(
                 "fundus_recommend.db.queries.composite_scores",
-                return_value=np.array([0.95, 0.90, 0.85]),
+                return_value=np.array([0.95, 0.90, 0.88, 0.20, 0.89, 0.19, 0.18]),
             ),
-            patch("fundus_recommend.db.queries.authority_score", return_value=1.0),
         ):
-            results = await recommend_stories_similar(session, 10, limit=2, candidate_limit=50)
+            results = await recommend_stories_similar(session, 10, limit=3, candidate_limit=50)
 
-        self.assertEqual([story.story_id for story, _score in results], ["cluster:600", "article:13"])
-        self.assertEqual([article.id for article in results[0][0].articles], [12, 14, 15])
+        self.assertEqual([story.story_id for story, _score in results], ["cluster:600", "cluster:700"])
 
-    async def test_get_personalized_story_feed_uses_preference_candidates_and_story_limit(self) -> None:
+    async def test_get_personalized_story_feed_prefers_tier1_anchored_and_respects_limit(self) -> None:
         preferences = [
-            SimpleNamespace(topic="tech", weight=1.0),
-            SimpleNamespace(topic="business", weight=0.8),
+            SimpleNamespace(topic="policy", weight=1.0),
+            SimpleNamespace(topic="markets", weight=0.8),
         ]
 
-        tech_story = _article(1, 100, "Reuters", 12)
-        standalone_story = _article(2, None, "Bloomberg", 9)
-        business_story = _article(3, 200, "BBC", 11)
-        source_counts = [
-            (100, 3),
-            (200, 2),
-        ]
-        expanded_selected_clusters = [
-            _article(6, 100, "The Verge", 13),
+        tier1_cluster = [
             _article(1, 100, "Reuters", 12),
-            _article(7, 100, "AP", 11),
-            _article(3, 200, "BBC", 11),
-            _article(8, 200, "FT", 10),
+            _article(2, 100, "Politico", 11),
+            _article(3, 100, "Local Source A", 10),
+        ]
+        fallback_cluster = [
+            _article(4, 200, "Politico", 12),
+            _article(5, 200, "Local Source B", 11),
+            _article(6, 200, "Local Source C", 10),
         ]
 
         session = AsyncMock()
         session.execute.side_effect = [
             _FakeExecuteResult(preferences),
-            _FakeExecuteResult(source_counts),
-            _FakeExecuteResult(expanded_selected_clusters),
+            _FakeExecuteResult([*tier1_cluster, *fallback_cluster]),
+            _FakeExecuteResult([*tier1_cluster, *fallback_cluster]),
         ]
 
         async def _semantic_side_effect(_session, topic: str, _limit: int):
-            if topic == "tech":
-                return [(tech_story, 0.9), (standalone_story, 0.8)]
-            return [(tech_story, 0.85), (business_story, 0.84)]
+            if topic == "policy":
+                return [(article, 0.9) for article in tier1_cluster]
+            return [(article, 0.8) for article in fallback_cluster]
 
         with (
             patch("fundus_recommend.db.queries.semantic_search", side_effect=_semantic_side_effect) as semantic_mock,
             patch("fundus_recommend.db.queries.get_view_counts", return_value={}),
             patch(
                 "fundus_recommend.db.queries.composite_scores",
-                return_value=np.array([0.90, 0.40, 0.80]),
+                return_value=np.array([0.91, 0.90, 0.50, 0.99, 0.40, 0.30]),
             ),
-            patch("fundus_recommend.db.queries.authority_score", return_value=1.0),
         ):
-            results = await get_personalized_story_feed(session, "user-1", limit=2, candidate_limit_per_topic=5)
+            results = await get_personalized_story_feed(session, "user-1", limit=1, candidate_limit_per_topic=5)
 
         self.assertEqual(semantic_mock.await_count, 2)
-        self.assertEqual([story.story_id for story, _score in results], ["cluster:100", "cluster:200"])
-        self.assertEqual(len(results), 2)  # story limit, not article limit
-        self.assertEqual([article.id for article in results[0][0].articles], [1, 6, 7])
-
-    async def test_recommend_stories_by_topic_prefers_higher_reputation_when_other_signals_match(self) -> None:
-        candidates = [
-            _article(1, 100, "Reuters", 12),
-            _article(2, 200, "Unknown Blog", 12),
-        ]
-        source_counts = [
-            (100, 3),
-            (200, 3),
-        ]
-        expanded_clusters = [
-            _article(1, 100, "Reuters", 12),
-            _article(2, 200, "Unknown Blog", 12),
-        ]
-
-        session = AsyncMock()
-        session.execute.side_effect = [
-            _FakeExecuteResult(source_counts),
-            _FakeExecuteResult(expanded_clusters),
-        ]
-
-        def _authority_side_effect(publisher: str) -> float:
-            if publisher == "Reuters":
-                return 1.0
-            return 0.4
-
-        with (
-            patch(
-                "fundus_recommend.db.queries.semantic_search",
-                return_value=[(article, 0.9) for article in candidates],
-            ),
-            patch("fundus_recommend.db.queries.get_view_counts", return_value={}),
-            patch(
-                "fundus_recommend.db.queries.composite_scores",
-                return_value=np.array([0.80, 0.80]),
-            ),
-            patch("fundus_recommend.db.queries.authority_score", side_effect=_authority_side_effect),
-        ):
-            results = await recommend_stories_by_topic(session, "elections", limit=2, candidate_limit=10)
-
-        self.assertEqual([story.story_id for story, _score in results], ["cluster:100", "cluster:200"])
-
-    async def test_recommend_stories_by_topic_prefers_higher_coverage_when_popularity_and_reputation_match(self) -> None:
-        candidates = [
-            _article(1, 100, "Reuters", 12),
-            _article(2, 200, "Reuters", 12),
-        ]
-        source_counts = [
-            (100, 5),
-            (200, 3),
-        ]
-        expanded_clusters = [
-            _article(1, 100, "Reuters", 12),
-            _article(2, 200, "Reuters", 12),
-        ]
-
-        session = AsyncMock()
-        session.execute.side_effect = [
-            _FakeExecuteResult(source_counts),
-            _FakeExecuteResult(expanded_clusters),
-        ]
-
-        with (
-            patch(
-                "fundus_recommend.db.queries.semantic_search",
-                return_value=[(article, 0.9) for article in candidates],
-            ),
-            patch("fundus_recommend.db.queries.get_view_counts", return_value={}),
-            patch(
-                "fundus_recommend.db.queries.composite_scores",
-                return_value=np.array([0.70, 0.70]),
-            ),
-            patch("fundus_recommend.db.queries.authority_score", return_value=1.0),
-        ):
-            results = await recommend_stories_by_topic(session, "markets", limit=2, candidate_limit=10)
-
-        self.assertEqual([story.story_id for story, _score in results], ["cluster:100", "cluster:200"])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0][0].story_id, "cluster:100")
 
 
 if __name__ == "__main__":
