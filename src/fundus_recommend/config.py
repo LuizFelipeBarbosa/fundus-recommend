@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     ranking_engagement_weight: float = 0.05
     ranking_diversity_lambda: float = 0.3
     ranking_recency_half_life_hours: float = 48.0
-    top_story_min_sources: int = 3
+    top_story_min_sources: int = 3  # unused, kept for .env compatibility
     top_story_score_popularity_weight: float = 0.45
     top_story_score_coverage_weight: float = 0.35
     top_story_score_reputation_weight: float = 0.20

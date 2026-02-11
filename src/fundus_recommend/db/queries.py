@@ -197,8 +197,7 @@ async def _build_tier_anchored_story_ranking(
         return [], {}, {}
 
     story_articles_by_cluster = await _fetch_cluster_articles(session, sorted(cluster_ids))
-    tier1_candidates: list[_EligibleStory] = []
-    tier2_fallback_candidates: list[_EligibleStory] = []
+    all_eligible_stories: list[_EligibleStory] = []
 
     for story_key, story_candidate_articles in candidate_by_story_key.items():
         first_article = story_candidate_articles[0]
@@ -212,18 +211,16 @@ async def _build_tier_anchored_story_ranking(
         if not full_story_articles:
             continue
 
-        tier_1_articles = [article for article in full_story_articles if publisher_tier(article.publisher) == 1]
-        tier_2_articles = [article for article in full_story_articles if publisher_tier(article.publisher) == 2]
-        tier_3_articles = [article for article in full_story_articles if publisher_tier(article.publisher) == 3]
+        # Select lead article: prefer Tier 1 > Tier 2 > any
+        tier_1_articles = [a for a in full_story_articles if publisher_tier(a.publisher) == 1]
+        tier_2_articles = [a for a in full_story_articles if publisher_tier(a.publisher) == 2]
 
-        if tier_1_articles and (len(tier_2_articles) + len(tier_3_articles)) >= 2:
+        if tier_1_articles:
             lead_pool = tier_1_articles
-            is_tier1_anchored = True
-        elif not tier_1_articles and tier_2_articles and len(tier_3_articles) >= 2:
+        elif tier_2_articles:
             lead_pool = tier_2_articles
-            is_tier1_anchored = False
         else:
-            continue
+            lead_pool = full_story_articles
 
         lead_article = max(
             lead_pool,
@@ -233,25 +230,21 @@ async def _build_tier_anchored_story_ranking(
         lead_popularity_score = popularity_score_by_article_id.get(lead_article.id, float("-inf"))
         if lead_popularity_score == float("-inf"):
             lead_popularity_score = max(
-                (popularity_score_by_article_id.get(article.id, float("-inf")) for article in story_candidate_articles),
+                (popularity_score_by_article_id.get(a.id, float("-inf")) for a in story_candidate_articles),
                 default=0.0,
             )
         if lead_popularity_score == float("-inf"):
             lead_popularity_score = 0.0
 
-        eligible_story = _EligibleStory(
-            story_key=story_key,
-            lead_article=lead_article,
-            source_count=len(full_story_articles),
-            popularity_score=float(lead_popularity_score),
+        all_eligible_stories.append(
+            _EligibleStory(
+                story_key=story_key,
+                lead_article=lead_article,
+                source_count=len(full_story_articles),
+                popularity_score=float(lead_popularity_score),
+            )
         )
 
-        if is_tier1_anchored:
-            tier1_candidates.append(eligible_story)
-        else:
-            tier2_fallback_candidates.append(eligible_story)
-
-    all_eligible_stories = [*tier1_candidates, *tier2_fallback_candidates]
     if not all_eligible_stories:
         return [], {}, {}
 
@@ -263,28 +256,20 @@ async def _build_tier_anchored_story_ranking(
     for story in all_eligible_stories:
         lead_by_story_key[story.story_key] = story.lead_article
         source_count_by_story_key[story.story_key] = story.source_count
-        coverage_score = _coverage_score(story.source_count, max_source_count)
-        reputation_score = authority_score(story.lead_article.publisher)
+        coverage = _coverage_score(story.source_count, max_source_count)
+        reputation = authority_score(story.lead_article.publisher)
         final_score_by_story_key[story.story_key] = (
             settings.top_story_score_popularity_weight * story.popularity_score
-            + settings.top_story_score_coverage_weight * coverage_score
-            + settings.top_story_score_reputation_weight * reputation_score
+            + settings.top_story_score_coverage_weight * coverage
+            + settings.top_story_score_reputation_weight * reputation
         )
 
-    tier1_story_keys = [story.story_key for story in tier1_candidates]
-    tier2_story_keys = [story.story_key for story in tier2_fallback_candidates]
-    tier1_story_keys.sort(
-        key=lambda story_key: _story_quality_sort_key(
-            story_key, final_score_by_story_key, source_count_by_story_key, lead_by_story_key
-        )
+    ordered_story_keys = sorted(
+        [s.story_key for s in all_eligible_stories],
+        key=lambda sk: _story_quality_sort_key(
+            sk, final_score_by_story_key, source_count_by_story_key, lead_by_story_key
+        ),
     )
-    tier2_story_keys.sort(
-        key=lambda story_key: _story_quality_sort_key(
-            story_key, final_score_by_story_key, source_count_by_story_key, lead_by_story_key
-        )
-    )
-
-    ordered_story_keys = [*tier1_story_keys, *tier2_story_keys]
     return ordered_story_keys, lead_by_story_key, final_score_by_story_key
 
 

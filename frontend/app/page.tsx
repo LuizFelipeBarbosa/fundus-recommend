@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { getStories, StoryListResponse } from "@/lib/api";
-import ArticleGrid from "@/components/ArticleGrid";
+import ArticleCard from "@/components/ArticleCard";
+import ArticleCluster from "@/components/ArticleCluster";
 import CategoryTabs from "@/components/CategoryTabs";
 import Pagination from "@/components/Pagination";
 
@@ -165,7 +166,23 @@ export default function HomePage() {
       {/* Content */}
       {!loading && !error && data && (
         <>
-          <ArticleGrid articles={data.items.flatMap((story) => story.articles)} />
+          <div className="space-y-10">
+            {data.items.map((story, idx) => (
+              <div key={story.story_id}>
+                {story.articles.length > 1 ? (
+                  <ArticleCluster articles={story.articles} />
+                ) : (
+                  <ArticleCard
+                    article={story.lead_article}
+                    featured={idx === 0}
+                  />
+                )}
+                {idx < data.items.length - 1 && (
+                  <div className="rule-thick mt-10" />
+                )}
+              </div>
+            ))}
+          </div>
           <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
         </>
       )}
