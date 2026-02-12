@@ -33,6 +33,31 @@ class ArticleListResponse(BaseModel):
     page_size: int
 
 
+class NewsStory(BaseModel):
+    story_id: str
+    dedup_cluster_id: int | None
+    source_count: int
+    lead_article: ArticleSummary
+    articles: list[ArticleSummary]
+
+
+class StoryListResponse(BaseModel):
+    items: list[NewsStory]
+    total: int
+    page: int
+    page_size: int
+
+
+class StoryRecommendationResult(BaseModel):
+    story: NewsStory
+    score: float
+
+
+class StoryRecommendationResponse(BaseModel):
+    strategy: str
+    results: list[StoryRecommendationResult]
+
+
 class SearchResult(BaseModel):
     article: ArticleSummary
     score: float

@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 from fundus_recommend.config import settings
 
@@ -31,8 +32,8 @@ async_engine = create_async_engine(
 )
 AsyncSessionLocal = async_sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
 
-# Sync engine for CLI crawl/embed commands
-sync_engine = create_engine(settings.database_url_sync, echo=False)
+# Sync engine for CLI crawl/embed commands (NullPool for thread safety in scheduler)
+sync_engine = create_engine(settings.database_url_sync, echo=False, poolclass=NullPool)
 SyncSessionLocal = sessionmaker(sync_engine, class_=Session, expire_on_commit=False)
 
 

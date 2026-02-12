@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { getArticles, ArticleListResponse } from "@/lib/api";
-import ArticleGrid from "@/components/ArticleGrid";
+import { getStories, StoryListResponse } from "@/lib/api";
+import ArticleCard from "@/components/ArticleCard";
+import ArticleCluster from "@/components/ArticleCluster";
 import CategoryTabs from "@/components/CategoryTabs";
 import Pagination from "@/components/Pagination";
 
 export default function HomePage() {
-  const [data, setData] = useState<ArticleListResponse | null>(null);
+  const [data, setData] = useState<StoryListResponse | null>(null);
   const [page, setPage] = useState(1);
   const [publisher, setPublisher] = useState("");
   const [language, setLanguage] = useState("");
@@ -19,7 +20,7 @@ export default function HomePage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const filtersPopulated = useRef(false);
 
-  const pageSize = 20;
+  const pageSize = 15;
 
   const fetchArticles = useCallback(async (isPolling = false) => {
     if (!isPolling) {
@@ -27,7 +28,7 @@ export default function HomePage() {
     }
     setError(null);
     try {
-      const result = await getArticles({
+      const result = await getStories({
         page,
         page_size: pageSize,
         publisher: publisher || undefined,
@@ -38,8 +39,10 @@ export default function HomePage() {
       setLastUpdated(new Date());
 
       if (!filtersPopulated.current && result.items.length > 0) {
-        const allPublishers = Array.from(new Set(result.items.map((a) => a.publisher))).sort();
-        const allLanguages = Array.from(new Set(result.items.map((a) => a.language).filter(Boolean))) as string[];
+        const allPublishers = Array.from(new Set(result.items.map((story) => story.lead_article.publisher))).sort();
+        const allLanguages = Array.from(
+          new Set(result.items.map((story) => story.lead_article.language).filter(Boolean))
+        ) as string[];
         setPublishers(allPublishers);
         setLanguages(allLanguages.sort());
         filtersPopulated.current = true;
@@ -79,7 +82,7 @@ export default function HomePage() {
         <div>
           <h2 className="font-display text-3xl font-bold italic text-ink">Today&apos;s Edition</h2>
           <p className="mt-1 font-sans text-xs uppercase tracking-[0.2em] text-ink-muted">
-            {data ? `${data.total} articles in the archive` : "Loading..."}
+            {data ? `${data.total} stories in the edition` : "Loading..."}
             {lastUpdated && (
               <span className="ml-3 normal-case tracking-normal text-ink-muted/60">
                 Updated {lastUpdated.toLocaleTimeString()}
@@ -163,7 +166,23 @@ export default function HomePage() {
       {/* Content */}
       {!loading && !error && data && (
         <>
-          <ArticleGrid articles={data.items} />
+          <div className="space-y-10">
+            {data.items.map((story, idx) => (
+              <div key={story.story_id}>
+                {story.articles.length > 1 ? (
+                  <ArticleCluster articles={story.articles} />
+                ) : (
+                  <ArticleCard
+                    article={story.lead_article}
+                    featured={idx === 0}
+                  />
+                )}
+                {idx < data.items.length - 1 && (
+                  <div className="rule-thick mt-10" />
+                )}
+              </div>
+            ))}
+          </div>
           <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
         </>
       )}

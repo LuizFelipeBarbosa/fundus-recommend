@@ -14,18 +14,18 @@ CATEGORY_PRIORITY = ["US", "Global", "Business", "Technology", "Arts", "Sports",
 # The embeddings are averaged to form a robust prototype centroid.
 CATEGORY_EXEMPLARS: dict[str, list[str]] = {
     "US": [
-        "Congress passes new federal spending bill after heated debate in the Senate",
-        "President addresses the nation on domestic policy from the White House",
-        "Supreme Court rules on landmark case affecting state election laws",
-        "Governor signs executive order reshaping state healthcare policy",
-        "Democrats and Republicans clash over immigration reform in Washington",
+        "US Congress passes bipartisan spending bill after Senate filibuster showdown",
+        "President Biden addresses America on domestic policy from the White House",
+        "US Supreme Court overturns ruling affecting abortion rights across American states",
+        "Democrats and Republicans clash over immigration at the US-Mexico border",
+        "Trump signs executive order on tariffs as American economy shows mixed signals",
     ],
     "Global": [
         "NATO allies agree to increase defense spending amid rising geopolitical tensions",
-        "UN Security Council calls emergency session over escalating conflict",
+        "UN Security Council calls emergency session over escalating conflict in Middle East",
         "Diplomatic talks between world leaders aim to resolve cross-border dispute",
         "Ukraine peace negotiations accelerate as foreign ministers meet in Geneva",
-        "Trade war intensifies as nations impose retaliatory tariffs on imports",
+        "European Union imposes sanctions on Russia over territorial aggression",
     ],
     "Business": [
         "Wall Street rallies as Fed signals pause on interest rate hikes",

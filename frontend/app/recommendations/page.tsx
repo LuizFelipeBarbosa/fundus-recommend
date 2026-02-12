@@ -1,12 +1,12 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { getRecommendations, SearchResult } from "@/lib/api";
+import { getStoryRecommendations, StoryRecommendationResult } from "@/lib/api";
 import ArticleGrid from "@/components/ArticleGrid";
 
 export default function RecommendationsPage() {
   const [topic, setTopic] = useState("");
-  const [results, setResults] = useState<SearchResult[]>([]);
+  const [results, setResults] = useState<StoryRecommendationResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
@@ -19,7 +19,7 @@ export default function RecommendationsPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await getRecommendations({ topic: topic.trim(), limit: 20 });
+      const data = await getStoryRecommendations({ topic: topic.trim(), limit: 20 });
       setResults(data.results);
       setCurrentTopic(topic.trim());
       setSearched(true);
@@ -30,7 +30,12 @@ export default function RecommendationsPage() {
     }
   }
 
-  const scores = new Map(results.map((r) => [r.article.id, r.score]));
+  const scores = new Map<number, number>();
+  for (const result of results) {
+    for (const article of result.story.articles) {
+      scores.set(article.id, result.score);
+    }
+  }
 
   return (
     <div className="pt-8">
@@ -87,10 +92,10 @@ export default function RecommendationsPage() {
           <div className="mb-6 flex items-center gap-3">
             <div className="rule-accent w-8" />
             <p className="font-sans text-[11px] uppercase tracking-[0.2em] text-ink-muted">
-              {results.length} recommendation{results.length !== 1 ? "s" : ""} for &ldquo;{currentTopic}&rdquo;
+              {results.length} story recommendation{results.length !== 1 ? "s" : ""} for &ldquo;{currentTopic}&rdquo;
             </p>
           </div>
-          <ArticleGrid articles={results.map((r) => r.article)} scores={scores} />
+          <ArticleGrid articles={results.flatMap((result) => result.story.articles)} scores={scores} />
         </>
       )}
 
