@@ -1,12 +1,19 @@
+import time
+
 import numpy as np
 from sqlalchemy import select, update
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from fundus_recommend.config import settings
 from fundus_recommend.models.db import Article
 
 
-def run_dedup(session: Session, new_article_ids: list[int] | None = None) -> int:
+def run_dedup(
+    session: Session,
+    new_article_ids: list[int] | None = None,
+    max_cluster_size: int = 200,
+) -> int:
     """Incremental dedup: compare new articles against the full corpus.
 
     Only articles listed in *new_article_ids* are checked for similarity.
@@ -15,9 +22,9 @@ def run_dedup(session: Session, new_article_ids: list[int] | None = None) -> int
     When a new article bridges two previously separate clusters the smaller
     cluster is merged into the larger one (by min-id convention).
 
-    The similarity matrix is (new × all) instead of (all × all), so memory
-    stays proportional to ``len(new_article_ids) * total_articles`` rather
-    than ``total_articles²``.
+    Clusters are capped at *max_cluster_size* to prevent runaway
+    transitive-chain growth.  Neighbours in oversized clusters are ignored,
+    and merges that would exceed the cap are skipped.
 
     Returns the number of articles whose cluster assignment changed.
     """
@@ -49,6 +56,13 @@ def run_dedup(session: Session, new_article_ids: list[int] | None = None) -> int
     # current cluster state (article_id -> cluster_id)
     cluster_of: dict[int, int | None] = {r[0]: r[2] for r in all_rows}
 
+    # --- cluster size tracking ---
+    cluster_size: dict[int, int] = {}
+    for r in all_rows:
+        cid = r[2]
+        if cid is not None:
+            cluster_size[cid] = cluster_size.get(cid, 0) + 1
+
     # --- similarity: new × all  (cosine; embeddings are L2-normalised) ---
     sim_matrix = new_embeddings @ all_embeddings.T  # shape (len(new), len(all))
 
@@ -62,6 +76,16 @@ def run_dedup(session: Session, new_article_ids: list[int] | None = None) -> int
         if not neighbor_ids:
             continue
 
+        # Ignore neighbours in clusters already at the size cap — these are
+        # likely transitive-chain artefacts, not genuine duplicates.
+        frozen = {cid for cid, sz in cluster_size.items() if sz >= max_cluster_size}
+        neighbor_ids = [
+            aid for aid in neighbor_ids
+            if cluster_of.get(aid) not in frozen
+        ]
+        if not neighbor_ids:
+            continue
+
         # Gather everyone in this group: the new article + its neighbours
         group = [new_id] + neighbor_ids
 
@@ -72,6 +96,12 @@ def run_dedup(session: Session, new_article_ids: list[int] | None = None) -> int
             if cid is not None:
                 cluster_ids_in_group.add(cid)
 
+        # Check if merging would exceed the cap
+        combined = sum(cluster_size.get(cid, 0) for cid in cluster_ids_in_group)
+        combined += sum(1 for aid in group if cluster_of.get(aid) is None)
+        if combined > max_cluster_size:
+            continue
+
         # Target cluster = smallest existing cluster id, or smallest article id
         target_cluster = min(cluster_ids_in_group) if cluster_ids_in_group else min(group)
 
@@ -79,28 +109,49 @@ def run_dedup(session: Session, new_article_ids: list[int] | None = None) -> int
         for aid in group:
             if cluster_of.get(aid) is None:
                 cluster_of[aid] = target_cluster
+                cluster_size[target_cluster] = cluster_size.get(target_cluster, 0) + 1
                 changed.add(aid)
 
         # Merge any other clusters into target (smaller id wins)
         for old_cluster in cluster_ids_in_group:
             if old_cluster == target_cluster:
                 continue
-            # Bulk-update in DB
-            session.execute(
-                update(Article)
-                .where(Article.dedup_cluster_id == old_cluster)
-                .values(dedup_cluster_id=target_cluster)
-            )
+            old_size = cluster_size.pop(old_cluster, 0)
+            cluster_size[target_cluster] = cluster_size.get(target_cluster, 0) + old_size
+            # Bulk-update in DB (retry on deadlock)
+            for attempt in range(3):
+                try:
+                    session.execute(
+                        update(Article)
+                        .where(Article.dedup_cluster_id == old_cluster)
+                        .values(dedup_cluster_id=target_cluster)
+                    )
+                    break
+                except OperationalError:
+                    session.rollback()
+                    if attempt == 2:
+                        raise
+                    time.sleep(0.1 * (attempt + 1))
             # Keep local map in sync
             for aid in list(cluster_of):
                 if cluster_of[aid] == old_cluster:
                     cluster_of[aid] = target_cluster
                     changed.add(aid)
 
-    # Persist new assignments for articles that weren't covered by the merge UPDATE
+    # Persist new assignments for articles that weren't covered by the merge UPDATE.
+    # Retry on deadlock — concurrent processes (e.g. re-categorization) may lock
+    # overlapping rows.
     for aid in changed:
         cid = cluster_of[aid]
-        session.execute(update(Article).where(Article.id == aid).values(dedup_cluster_id=cid))
+        for attempt in range(3):
+            try:
+                session.execute(update(Article).where(Article.id == aid).values(dedup_cluster_id=cid))
+                break
+            except OperationalError:
+                session.rollback()
+                if attempt == 2:
+                    raise
+                time.sleep(0.1 * (attempt + 1))
 
     session.commit()
     return len(changed)
