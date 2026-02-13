@@ -19,22 +19,22 @@ interface CategoryTabsProps {
 
 export default function CategoryTabs({ selected, onChange }: CategoryTabsProps) {
   return (
-    <div className="flex items-center gap-0 overflow-x-auto border-b border-rule">
+    <div className="mb-1 flex items-center gap-1 overflow-x-auto rounded-lg border border-rule/85 bg-panel/25 p-1">
       {CATEGORIES.map((cat) => {
         const isActive = selected === cat.value;
         return (
           <button
             key={cat.value}
             onClick={() => onChange(cat.value)}
-            className={`relative shrink-0 px-4 py-2.5 font-sans text-xs font-bold uppercase tracking-[0.15em] transition-colors ${
+            className={`relative shrink-0 rounded-md px-3 py-1.5 font-sans text-[10px] font-semibold uppercase tracking-[0.17em] transition-all ${
               isActive
-                ? "text-accent"
-                : "text-ink-muted hover:text-ink"
+                ? "bg-accent/15 text-accent"
+                : "text-ink-muted hover:bg-panel-soft/50 hover:text-ink"
             }`}
           >
             {cat.label}
             {isActive && (
-              <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-accent animate-rule-draw origin-left" />
+              <span className="absolute bottom-0 left-2 right-2 h-[2px] bg-accent/80 animate-rule-draw origin-left" />
             )}
           </button>
         );
