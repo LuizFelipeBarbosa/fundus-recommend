@@ -197,4 +197,49 @@ See [`docs/operations.md`](docs/operations.md) for runbook details.
 ## Deployment Notes
 
 - `docker-compose.prod.yml`: production-like local stack
-- `railway.toml`: Dockerfile-based deployment with `/health` healthcheck
+- `railway.toml`: default Railway config for Dockerfile builds
+
+### Railway (Neon + API + Frontend + Scheduler)
+
+Deploy as three Railway services in one project (all from this repo):
+
+1. `api`
+2. `frontend`
+3. `scheduler`
+
+Recommended service-level variables:
+
+| Service | Variable | Value |
+|---|---|---|
+| `api` | `RAILWAY_DOCKERFILE_PATH` | `Dockerfile` |
+| `api` | `PORT` | `8000` |
+| `api` | `DATABASE_URL` | Neon async URL (`postgresql+asyncpg://...`) |
+| `api` | `DATABASE_URL_SYNC` | Neon sync URL (`postgresql+psycopg2://...`) |
+| `api` | `CORS_ORIGINS` | `https://<frontend-domain>` |
+| `frontend` | `RAILWAY_DOCKERFILE_PATH` | `Dockerfile.frontend` |
+| `frontend` | `NEXT_PUBLIC_API_URL` | `https://<api-domain>` |
+| `scheduler` | `RAILWAY_DOCKERFILE_PATH` | `Dockerfile.scheduler` |
+| `scheduler` | `DATABASE_URL` | Neon async URL |
+| `scheduler` | `DATABASE_URL_SYNC` | Neon sync URL |
+| `scheduler` | `SCHEDULER_PUBLISHERS` | `cnn,npr,propublica` |
+| `scheduler` | `SCHEDULER_MAX_ARTICLES` | `100` |
+| `scheduler` | `SCHEDULER_WORKERS` | `4` |
+| `scheduler` | `SCHEDULER_BATCH_SIZE` | `64` |
+
+Set a Railway Cron schedule on the `scheduler` service (UTC), for example:
+
+```text
+*/30 * * * *
+```
+
+Recommended watch paths:
+- `api`: `/src`, `/alembic`, `/scripts`, `/pyproject.toml`, `/Dockerfile`
+- `frontend`: `/frontend`, `/Dockerfile.frontend`
+- `scheduler`: `/src`, `/alembic`, `/scripts`, `/pyproject.toml`, `/Dockerfile.scheduler`
+
+Files used for this setup:
+- `Dockerfile` (API)
+- `Dockerfile.frontend` (Frontend, repo-root build context)
+- `Dockerfile.scheduler` (Scheduler worker)
+- `scripts/start-api.sh`
+- `scripts/start-scheduler-once.sh`

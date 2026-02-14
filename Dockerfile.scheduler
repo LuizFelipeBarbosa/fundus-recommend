@@ -13,5 +13,4 @@ COPY . .
 RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch && \
     pip install --no-cache-dir .
 
-# Default command is API server; scheduler overrides this
-CMD ["sh", "scripts/start-api.sh"]
+CMD ["sh", "scripts/start-scheduler-once.sh"]
