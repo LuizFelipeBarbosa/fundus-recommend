@@ -11,16 +11,16 @@ A news recommendation engine powered by [Fundus](https://github.com/flairNLP/fun
 │                          SCHEDULER (fr-schedule)                        │
 │                          every 10 min cycle                             │
 │                                                                         │
-│   ┌──────────┐   ┌───────────┐   ┌──────────┐   ┌────────────┐        │
-│   │  Crawl   │──▶│ Translate │──▶│  Embed   │──▶│ Categorize │        │
-│   │ (Fundus) │   │ (Google)  │   │ (SBERT)  │   │(Prototypes)│        │
-│   └──────────┘   └───────────┘   └──────────┘   └────────────┘        │
+│   ┌──────────┐   ┌───────────┐   ┌──────────┐   ┌────────────┐          │
+│   │  Crawl   │──▶│ Translate │──▶│  Embed   │──▶│ Categorize │          │
+│   │ (Fundus) │   │ (Google)  │   │ (SBERT)  │   │(Prototypes)│          │
+│   └──────────┘   └───────────┘   └──────────┘   └────────────┘          │
 │        │                                               │                │
 │        ▼                                               ▼                │
-│   ┌──────────────────────────────────────────────────────────┐         │
-│   │              PostgreSQL + pgvector                        │         │
-│   │  articles | article_views | users | user_preferences     │         │
-│   └──────────────────────────────────────────────────────────┘         │
+│   ┌──────────────────────────────────────────────────────────┐          │
+│   │              PostgreSQL + pgvector                       │          │
+│   │  articles | article_views | users | user_preferences     │          │
+│   └──────────────────────────────────────────────────────────┘          │
 │        ▲                         │                                      │
 │   ┌────┘                         │                                      │
 │   │ Dedup + Refresh              │                                      │
