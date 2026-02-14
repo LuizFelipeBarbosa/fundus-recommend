@@ -23,46 +23,46 @@ export default function Navbar() {
   const pathname = usePathname();
 
   return (
-    <header className="relative z-50 bg-cream">
+    <header className="sticky top-0 z-50 border-b border-rule/90 bg-cream/90 backdrop-blur">
       {/* Top rule */}
-      <div className="rule-accent mx-auto max-w-[1200px]" />
+      <div className="rule-accent mx-auto max-w-[1320px]" />
 
       {/* Masthead with integrated nav */}
-      <div className="mx-auto flex max-w-[1200px] items-center justify-between px-6 py-3">
+      <div className="mx-auto flex max-w-[1320px] items-center justify-between px-4 py-2.5 sm:px-6 lg:px-8">
         {/* Left: Date */}
-        <p className="hidden font-sans text-[10px] uppercase tracking-[0.2em] text-ink-muted sm:block">
+        <p className="hidden font-sans text-[10px] uppercase tracking-[0.2em] text-ink-muted/85 sm:block">
           <TodayDate />
         </p>
 
         {/* Center: Logo */}
         <Link href="/" className="group absolute left-1/2 -translate-x-1/2">
-          <h1 className="font-display text-2xl font-bold tracking-tight text-ink transition-colors group-hover:text-accent">
+          <h1 className="font-display text-[30px] font-semibold tracking-[0.01em] text-ink transition-colors group-hover:text-accent">
             Nexus
           </h1>
         </Link>
 
         {/* Right: Nav */}
-        <nav className="flex items-center gap-6">
+        <nav className="flex items-center gap-4 sm:gap-6">
           {navLinks.map((link) => (
             <Link
               key={link.href}
               href={link.href}
-              className={`relative py-1 font-sans text-[11px] font-medium uppercase tracking-[0.15em] transition-colors ${
+              className={`relative py-1 font-sans text-[10px] font-semibold uppercase tracking-[0.2em] transition-colors sm:text-[11px] ${
                 pathname === link.href
                   ? "text-accent"
-                  : "text-ink-light hover:text-accent"
+                  : "text-ink-muted hover:text-ink"
               }`}
             >
               {link.label}
               {pathname === link.href && (
-                <span className="absolute -bottom-1 left-0 right-0 h-[2px] bg-accent" />
+                <span className="absolute -bottom-1 left-0 right-0 h-[2px] bg-accent/90" />
               )}
             </Link>
           ))}
         </nav>
       </div>
 
-      <div className="rule mx-auto max-w-[1200px]" />
+      <div className="rule mx-auto max-w-[1320px]" />
     </header>
   );
 }

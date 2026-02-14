@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getStories, StoryListResponse } from "@/lib/api";
-import ArticleCard from "@/components/ArticleCard";
-import ArticleCluster from "@/components/ArticleCluster";
+import StoryCard from "@/components/StoryCard";
 import CategoryTabs from "@/components/CategoryTabs";
 import Pagination from "@/components/Pagination";
 
@@ -76,58 +75,60 @@ export default function HomePage() {
   const totalPages = data ? Math.ceil(data.total / pageSize) : 0;
 
   return (
-    <div className="pt-8">
+    <div className="pt-5 sm:pt-7">
       {/* Section header */}
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2 className="font-display text-3xl font-bold italic text-ink">Today&apos;s Edition</h2>
-          <p className="mt-1 font-sans text-xs uppercase tracking-[0.2em] text-ink-muted">
+          <h2 className="font-display text-4xl font-semibold leading-none text-ink sm:text-5xl">
+            Today&apos;s Edition
+          </h2>
+          <p className="mt-1 font-sans text-[11px] uppercase tracking-[0.24em] text-ink-muted">
             {data ? `${data.total} stories in the edition` : "Loading..."}
             {lastUpdated && (
-              <span className="ml-3 normal-case tracking-normal text-ink-muted/60">
+              <span className="ml-3 normal-case tracking-normal text-ink-muted/70">
                 Updated {lastUpdated.toLocaleTimeString()}
               </span>
             )}
           </p>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           {publishers.length > 0 && (
             <div className="relative">
-              <label className="absolute -top-4 left-0 font-sans text-[9px] font-bold uppercase tracking-[0.2em] text-ink-muted">
+              <label className="absolute -top-4 left-0 font-sans text-[9px] font-bold uppercase tracking-[0.2em] text-ink-muted/85">
                 Source
               </label>
               <select
                 value={publisher}
                 onChange={handleFilterChange(setPublisher)}
-                className="appearance-none border-b-2 border-rule bg-transparent py-1.5 pr-6 font-sans text-xs text-ink focus:border-accent focus:outline-none"
+                className="surface-soft appearance-none rounded-md px-2.5 py-1.5 pr-7 font-sans text-[11px] uppercase tracking-[0.14em] text-ink focus:border-accent focus:outline-none"
               >
                 <option value="">All Sources</option>
                 {publishers.map((p) => (
                   <option key={p} value={p}>{p}</option>
                 ))}
               </select>
-              <span className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-ink-muted">
+              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ink-muted">
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M2 4l3 3 3-3" /></svg>
               </span>
             </div>
           )}
           {languages.length > 0 && (
             <div className="relative">
-              <label className="absolute -top-4 left-0 font-sans text-[9px] font-bold uppercase tracking-[0.2em] text-ink-muted">
+              <label className="absolute -top-4 left-0 font-sans text-[9px] font-bold uppercase tracking-[0.2em] text-ink-muted/85">
                 Language
               </label>
               <select
                 value={language}
                 onChange={handleFilterChange(setLanguage)}
-                className="appearance-none border-b-2 border-rule bg-transparent py-1.5 pr-6 font-sans text-xs text-ink focus:border-accent focus:outline-none"
+                className="surface-soft appearance-none rounded-md px-2.5 py-1.5 pr-7 font-sans text-[11px] uppercase tracking-[0.14em] text-ink focus:border-accent focus:outline-none"
               >
                 <option value="">All</option>
                 {languages.map((l) => (
                   <option key={l} value={l}>{l}</option>
                 ))}
               </select>
-              <span className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-ink-muted">
+              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ink-muted">
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M2 4l3 3 3-3" /></svg>
               </span>
             </div>
@@ -143,7 +144,7 @@ export default function HomePage() {
         }}
       />
 
-      <div className="rule-thick mb-8" />
+      <div className="rule-thick mb-5" />
 
       {/* Loading state */}
       {loading && (
@@ -166,23 +167,38 @@ export default function HomePage() {
       {/* Content */}
       {!loading && !error && data && (
         <>
-          <div className="space-y-10">
-            {data.items.map((story, idx) => (
-              <div key={story.story_id}>
-                {story.articles.length > 1 ? (
-                  <ArticleCluster articles={story.articles} />
-                ) : (
-                  <ArticleCard
-                    article={story.lead_article}
-                    featured={idx === 0}
-                  />
-                )}
-                {idx < data.items.length - 1 && (
-                  <div className="rule-thick mt-10" />
-                )}
-              </div>
-            ))}
-          </div>
+          {data.items.length === 0 ? (
+            <div className="surface rounded-xl p-10 text-center">
+              <p className="font-display text-2xl text-ink-muted">No stories in this slice.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {data.items[0] && <StoryCard story={data.items[0]} variant="hero" index={0} />}
+
+              {data.items.slice(1, 4).length > 0 && (
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {data.items.slice(1, 4).map((story, idx) => (
+                    <StoryCard key={story.story_id} story={story} variant="tile" index={idx + 1} />
+                  ))}
+                </div>
+              )}
+
+              {data.items.slice(4).length > 0 && (
+                <div className="rounded-xl border border-rule/80 bg-panel/35 p-2.5 sm:p-3">
+                  <div className="mb-2.5 flex items-center gap-2">
+                    <span className="compact-label">More Coverage</span>
+                    <div className="rule flex-1" />
+                  </div>
+                  <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
+                    {data.items.slice(4).map((story, idx) => (
+                      <StoryCard key={story.story_id} story={story} variant="row" index={idx + 4} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
         </>
       )}

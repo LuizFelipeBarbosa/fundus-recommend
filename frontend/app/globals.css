@@ -7,10 +7,22 @@
     @apply bg-cream text-ink;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    background-image:
+      radial-gradient(circle at 5% -15%, rgb(255 77 77 / 15%), transparent 42%),
+      radial-gradient(circle at 100% 0%, rgb(71 89 117 / 26%), transparent 38%);
+    min-height: 100vh;
   }
 
   ::selection {
     @apply bg-accent text-white;
+  }
+
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible {
+    outline: 2px solid rgb(255 77 77 / 75%);
+    outline-offset: 2px;
   }
 }
 
@@ -26,6 +38,18 @@
   }
   .rule-accent {
     @apply h-[3px] bg-accent;
+  }
+
+  .surface {
+    @apply border backdrop-blur;
+    border-color: rgb(42 48 59);
+    background-color: rgb(21 25 34 / 85%);
+  }
+
+  .surface-soft {
+    @apply border;
+    border-color: rgb(42 48 59 / 80%);
+    background-color: rgb(26 32 43 / 70%);
   }
 }
 
@@ -50,11 +74,20 @@
     content: "";
     position: absolute;
     inset: 0;
-    opacity: 0.03;
+    opacity: 0.12;
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
     background-size: 256px;
     pointer-events: none;
     z-index: 1;
+  }
+
+  .compact-label {
+    @apply font-sans text-[10px] font-semibold uppercase tracking-[0.22em] text-ink-muted;
+  }
+
+  .data-chip {
+    @apply inline-flex items-center rounded-full border px-2.5 py-1 font-sans text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-muted;
+    border-color: rgb(42 48 59 / 80%);
   }
 }
 
@@ -63,12 +96,12 @@
   width: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: theme("colors.cream");
+  background: #0d0f12;
 }
 ::-webkit-scrollbar-thumb {
-  background: theme("colors.rule-dark");
+  background: #3e4857;
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: theme("colors.ink-muted");
+  background: #606d82;
 }

@@ -69,8 +69,8 @@ export default function ArticleGrid({
 }) {
   if (articles.length === 0) {
     return (
-      <div className="py-16 text-center">
-        <p className="font-display text-xl italic text-ink-muted">No articles found.</p>
+      <div className="surface rounded-xl py-10 text-center">
+        <p className="font-display text-2xl text-ink-muted">No articles found.</p>
         <div className="mx-auto mt-4 h-px w-24 bg-rule" />
       </div>
     );
@@ -97,14 +97,14 @@ export default function ArticleGrid({
       {/* Featured article */}
       {featured && (
         <>
-          <div className="mb-6">
+          <div className="mb-4">
             <ArticleCard
               article={featured}
               score={scores?.get(featured.id)}
-              featured
+              variant="feature"
             />
           </div>
-          <div className="rule mb-6" />
+          <div className="rule mb-4" />
         </>
       )}
 
@@ -112,9 +112,9 @@ export default function ArticleGrid({
       {segments.map((segment, si) => {
         if (segment.type === "cluster") {
           return (
-            <div key={`cluster-${si}`} className="mb-8">
+            <div key={`cluster-${si}`} className="mb-5">
               <ArticleCluster articles={segment.articles} />
-              <div className="rule-thick mt-8" />
+              <div className="rule mt-5" />
             </div>
           );
         }
@@ -127,18 +127,14 @@ export default function ArticleGrid({
         return (
           <div
             key={`grid-${si}`}
-            className="mb-8 grid grid-cols-1 gap-x-8 gap-y-8 sm:grid-cols-2 lg:grid-cols-3"
+            className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
           >
             {gridArticles.map((article, i) => (
               <div
                 key={article.id}
-                className={`opacity-0 animate-fade-up stagger-${Math.min(startStagger + i + 1, 8)} ${
-                  i < gridArticles.length - 1
-                    ? "border-b border-rule pb-8 lg:border-b-0 lg:pb-0"
-                    : ""
-                }`}
+                className={`opacity-0 animate-fade-up stagger-${Math.min(startStagger + i + 1, 8)}`}
               >
-                <ArticleCard article={article} score={scores?.get(article.id)} />
+                <ArticleCard article={article} score={scores?.get(article.id)} variant="compact" />
               </div>
             ))}
           </div>

@@ -10,7 +10,9 @@ const SIMILAR_WEBSITES_LIMIT = 5;
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "";
-  return new Date(dateStr).toLocaleDateString("en-US", {
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -20,10 +22,8 @@ function formatDate(dateStr: string | null): string {
 function Placeholder({ publisher }: { publisher: string }) {
   const initial = publisher.charAt(0).toUpperCase();
   return (
-    <div className="flex h-full w-full items-center justify-center bg-warm">
-      <span className="font-display text-4xl font-bold italic text-rule-dark/60">
-        {initial}
-      </span>
+    <div className="flex h-full w-full items-center justify-center bg-panel-soft">
+      <span className="font-display text-3xl font-semibold text-ink-muted/70">{initial}</span>
     </div>
   );
 }
@@ -42,26 +42,26 @@ function pickMain(articles: ArticleSummary[]): {
 function CompactEntry({ article }: { article: ArticleSummary }) {
   return (
     <Link href={`/articles/${article.id}`} className="group block">
-      <article className="py-3">
-        <div className="mb-1 flex items-center gap-2">
-          <span className="font-sans text-[10px] font-bold uppercase tracking-[0.15em] text-accent">
+      <article className="rounded-md border border-transparent px-2 py-2 transition-colors hover:border-rule hover:bg-panel/35">
+        <div className="mb-1 flex items-center gap-1.5">
+          <span className="font-sans text-[9px] font-semibold uppercase tracking-[0.18em] text-accent">
             {article.publisher}
           </span>
           {article.publishing_date && (
             <>
-              <span className="text-[10px] text-rule-dark">/</span>
-              <span className="font-sans text-[10px] tracking-wider text-ink-muted">
+              <span className="text-[9px] text-rule-dark">&middot;</span>
+              <span className="font-sans text-[9px] uppercase tracking-[0.14em] text-ink-muted">
                 {formatDate(article.publishing_date)}
               </span>
             </>
           )}
         </div>
-        <h4 className="font-display text-[15px] font-bold leading-snug text-ink transition-colors group-hover:text-accent line-clamp-1">
+        <h4 className="font-display text-[22px] font-medium leading-[1.05] text-ink transition-colors group-hover:text-accent line-clamp-1">
           {getDisplayTitle(article)}
         </h4>
         {article.authors.length > 0 && (
-          <p className="mt-0.5 font-sans text-[11px] italic text-ink-muted">
-            {article.authors.join(", ")}
+          <p className="mt-0.5 font-sans text-[10px] uppercase tracking-[0.14em] text-ink-muted">
+            {article.authors.slice(0, 2).join(", ")}
           </p>
         )}
       </article>
@@ -76,59 +76,55 @@ export default function ArticleCluster({
 }) {
   const { main, others } = pickMain(articles);
   const [showAll, setShowAll] = useState(false);
-  
+
   const hasMore = others.length > SIMILAR_WEBSITES_LIMIT;
   const displayedOthers = showAll ? others : others.slice(0, SIMILAR_WEBSITES_LIMIT);
   const hiddenCount = others.length - SIMILAR_WEBSITES_LIMIT;
 
   return (
-    <div className="opacity-0 animate-fade-in">
-      {/* Sources badge */}
-      <div className="mb-3 flex items-center gap-2">
-        <span className="font-sans text-[11px] font-bold uppercase tracking-[0.15em] text-accent">
-          {articles.length} Sources
-        </span>
+    <div className="surface rounded-xl p-2.5 opacity-0 animate-fade-in sm:p-3">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="data-chip">{articles.length} sources</span>
         <div className="h-px flex-1 bg-rule" />
       </div>
 
-      <div className="flex flex-col gap-6 lg:flex-row lg:gap-0">
-        {/* Left column: main article with image */}
-        <div className="lg:w-[42%] lg:pr-6">
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+        <div className="rounded-lg border border-rule/85 bg-panel/35 p-2.5">
           <Link href={`/articles/${main.id}`} className="group block">
             <article>
-              <div className="relative aspect-[16/10] overflow-hidden bg-warm">
+              <div className="relative aspect-[16/10] overflow-hidden rounded-md bg-panel-soft">
                 {main.cover_image_url ? (
                   <Image
                     src={main.cover_image_url}
                     alt={getDisplayTitle(main)}
                     fill
                     unoptimized
-                    className="object-cover transition-transform duration-700 group-hover:scale-[1.03]"
+                    className="object-cover transition-transform duration-500 group-hover:scale-[1.03]"
                   />
                 ) : (
                   <Placeholder publisher={main.publisher} />
                 )}
               </div>
-              <div className="pt-3">
-                <div className="mb-1.5 flex items-center gap-2">
-                  <span className="font-sans text-[10px] font-bold uppercase tracking-[0.15em] text-accent">
+              <div className="pt-2.5">
+                <div className="mb-1 flex items-center gap-1.5">
+                  <span className="font-sans text-[9px] font-semibold uppercase tracking-[0.18em] text-accent">
                     {main.publisher}
                   </span>
                   {main.publishing_date && (
                     <>
-                      <span className="text-[10px] text-rule-dark">/</span>
-                      <span className="font-sans text-[10px] tracking-wider text-ink-muted">
+                      <span className="text-[9px] text-rule-dark">&middot;</span>
+                      <span className="font-sans text-[9px] uppercase tracking-[0.14em] text-ink-muted">
                         {formatDate(main.publishing_date)}
                       </span>
                     </>
                   )}
                 </div>
-                <h3 className="mb-1.5 font-display text-lg font-bold leading-snug text-ink transition-colors group-hover:text-accent">
+                <h3 className="font-display text-[26px] font-medium leading-[1.04] text-ink transition-colors group-hover:text-accent line-clamp-2">
                   {getDisplayTitle(main)}
                 </h3>
                 {main.authors.length > 0 && (
-                  <p className="font-sans text-xs italic text-ink-muted">
-                    By {main.authors.join(", ")}
+                  <p className="mt-1 font-sans text-[10px] uppercase tracking-[0.14em] text-ink-muted">
+                    {main.authors.slice(0, 2).join(", ")}
                   </p>
                 )}
               </div>
@@ -136,33 +132,18 @@ export default function ArticleCluster({
           </Link>
         </div>
 
-        {/* Vertical rule (desktop) */}
-        <div className="hidden lg:block lg:w-px lg:self-stretch lg:bg-rule" />
-
-        {/* Right column: compact stacked entries */}
-        <div className="lg:flex-1 lg:pl-6">
-          {displayedOthers.map((article, i) => (
-            <div key={article.id}>
-              {i > 0 && <div className="h-px bg-rule" />}
-              <CompactEntry article={article} />
-            </div>
+        <div className="space-y-1 rounded-lg border border-rule/85 bg-panel/30 p-1.5">
+          {displayedOthers.map((article) => (
+            <CompactEntry key={article.id} article={article} />
           ))}
-          
-          {/* Read more button */}
+
           {hasMore && (
-            <div className="mt-4 border-t border-rule pt-4">
+            <div className="pt-1 text-right">
               <button
                 onClick={() => setShowAll((v) => !v)}
-                className="group flex items-center gap-2 font-sans text-[11px] font-bold uppercase tracking-[0.15em] text-accent transition-colors hover:text-accent/70"
+                className="font-sans text-[10px] font-semibold uppercase tracking-[0.18em] text-accent transition-colors hover:text-accent/70"
               >
-                <span>{showAll ? "Show less" : `Read more (${hiddenCount} more)`}</span>
-                <svg
-                  className={`h-3 w-3 transition-transform ${showAll ? "rotate-180" : ""}`}
-                  viewBox="0 0 10 10"
-                  fill="currentColor"
-                >
-                  <path d="M2 4l3 3 3-3" />
-                </svg>
+                {showAll ? "Show Less" : `Read More (${hiddenCount})`}
               </button>
             </div>
           )}
