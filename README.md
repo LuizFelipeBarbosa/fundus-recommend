@@ -221,16 +221,17 @@ Recommended service-level variables:
 | `scheduler` | `RAILWAY_DOCKERFILE_PATH` | `Dockerfile.scheduler` |
 | `scheduler` | `DATABASE_URL` | Neon async URL |
 | `scheduler` | `DATABASE_URL_SYNC` | Neon sync URL |
-| `scheduler` | `SCHEDULER_PUBLISHERS` | `cnn,npr,propublica` |
-| `scheduler` | `SCHEDULER_MAX_ARTICLES` | `100` |
-| `scheduler` | `SCHEDULER_WORKERS` | `4` |
+| `scheduler` | `SCHEDULER_PUBLISHERS` | `all-countries` (expands to every Fundus country collection) |
+| `scheduler` | `SCHEDULER_MAX_ARTICLES` | `25` |
+| `scheduler` | `SCHEDULER_WORKERS` | `8` |
 | `scheduler` | `SCHEDULER_BATCH_SIZE` | `64` |
+| `scheduler` | `SCHEDULER_INTERVAL_MINUTES` | `5` |
+| `scheduler` | `SCHEDULER_RUN_MODE` | `loop` (use Python built-in scheduler) |
 
-Set a Railway Cron schedule on the `scheduler` service (UTC), for example:
+Use the Python built-in scheduler loop (`fr-schedule --interval ...`) for continuous crawling.
+If you need one-shot cron behavior, set `SCHEDULER_RUN_MODE=once`.
 
-```text
-*/30 * * * *
-```
+Set `SCHEDULER_WORKERS` to control parallel crawl workers.
 
 Recommended watch paths:
 - `api`: `/src`, `/alembic`, `/scripts`, `/pyproject.toml`, `/Dockerfile`

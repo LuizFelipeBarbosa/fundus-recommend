@@ -184,6 +184,9 @@ PUBLISHER_REGISTRY.update(
 # Default set: all fundus country collections
 DEFAULT_PUBLISHER_IDS: tuple[str, ...] = tuple(_FUNDUS_COUNTRIES.keys())
 
+# Special token aliases that expand to all Fundus country collections.
+_ALL_COUNTRY_TOKENS: set[str] = {"all", "all-countries", "all_countries", "countries", "fundus-countries"}
+
 
 def resolve_publisher_token(token: str) -> tuple[PublisherConfig | None, str | None]:
     key = token.strip().lower()
@@ -198,15 +201,28 @@ def resolve_publisher_token(token: str) -> tuple[PublisherConfig | None, str | N
 
 
 def resolve_publisher_tokens(tokens: list[str]) -> tuple[list[PublisherConfig], list[str], list[str]]:
+    # Expand aliases like "all-countries" into the full Fundus country set.
+    expanded_tokens: list[str] = []
+    for token in tokens:
+        key = token.strip().lower()
+        if key in _ALL_COUNTRY_TOKENS:
+            expanded_tokens.extend(DEFAULT_PUBLISHER_IDS)
+        else:
+            expanded_tokens.append(token)
+
     configs: list[PublisherConfig] = []
     warnings: list[str] = []
     unknown: list[str] = []
+    seen: set[str] = set()
 
-    for token in tokens:
+    for token in expanded_tokens:
         config, warning = resolve_publisher_token(token)
         if config is None:
             unknown.append(token)
             continue
+        if config.publisher_id in seen:
+            continue
+        seen.add(config.publisher_id)
         configs.append(config)
         if warning:
             warnings.append(warning)
