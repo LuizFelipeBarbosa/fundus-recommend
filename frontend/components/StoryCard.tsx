@@ -150,7 +150,7 @@ export default function StoryCard({
   return (
     <Link href={`/articles/${lead.id}`} className={`group block opacity-0 animate-fade-up ${staggerClass}`}>
       <article className="surface flex h-full overflow-hidden rounded-xl transition-colors hover:border-accent/70">
-        <div className="relative w-[38%] min-w-[136px] overflow-hidden sm:w-[34%]">
+        <div className="relative w-[38%] min-w-[136px] overflow-hidden sm:w-[34%] lg:w-[30%]">
           <StoryImage story={story} />
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-black/18" />
         </div>

@@ -73,6 +73,8 @@ export default function HomePage() {
   }
 
   const totalPages = data ? Math.ceil(data.total / pageSize) : 0;
+  const streamStories = data?.items.slice(4) ?? [];
+  const hasOddStreamTail = streamStories.length % 2 === 1;
 
   return (
     <div className="pt-5 sm:pt-7">
@@ -183,16 +185,22 @@ export default function HomePage() {
                 </div>
               )}
 
-              {data.items.slice(4).length > 0 && (
+              {streamStories.length > 0 && (
                 <div className="rounded-xl border border-rule/80 bg-panel/35 p-2.5 sm:p-3">
                   <div className="mb-2.5 flex items-center gap-2">
                     <span className="compact-label">More Coverage</span>
                     <div className="rule flex-1" />
                   </div>
                   <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
-                    {data.items.slice(4).map((story, idx) => (
-                      <StoryCard key={story.story_id} story={story} variant="row" index={idx + 4} />
-                    ))}
+                    {streamStories.map((story, idx) => {
+                      const isLast = idx === streamStories.length - 1;
+                      const fillTail = hasOddStreamTail && isLast;
+                      return (
+                        <div key={story.story_id} className={fillTail ? "lg:col-span-2" : undefined}>
+                          <StoryCard story={story} variant="row" index={idx + 4} />
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
