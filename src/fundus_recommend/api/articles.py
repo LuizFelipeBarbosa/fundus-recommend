@@ -22,6 +22,7 @@ from fundus_recommend.models.schemas import (
     NewsStory,
     StoryListResponse,
 )
+from fundus_recommend.services.article_body_store import BodyStoreError, get_body
 
 router = APIRouter(tags=["articles"])
 
@@ -93,7 +94,22 @@ async def get_article(article_id: int, session: AsyncSession = Depends(get_async
     article = await get_article_by_id(session, article_id)
     if article is None:
         raise HTTPException(status_code=404, detail="Article not found")
-    return ArticleDetail.model_validate(article)
+    body: str
+    if article.body_storage_key:
+        try:
+            body = get_body(article.body_storage_key)
+        except BodyStoreError as exc:
+            if article.body is not None:
+                body = article.body
+            else:
+                raise HTTPException(status_code=503, detail=f"Article body unavailable ({exc})") from exc
+    elif article.body is not None:
+        body = article.body
+    else:
+        raise HTTPException(status_code=503, detail="Article body unavailable")
+
+    summary = ArticleSummary.model_validate(article)
+    return ArticleDetail(**summary.model_dump(), body=body)
 
 
 class ViewRequest(BaseModel):

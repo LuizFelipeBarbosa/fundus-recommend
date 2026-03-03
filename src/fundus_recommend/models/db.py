@@ -29,7 +29,12 @@ class Article(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     url: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
-    body: Mapped[str] = mapped_column(Text, nullable=False)
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    body_snippet: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    body_storage_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    body_storage_provider: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="db", server_default="db"
+    )
     authors: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
     topics: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
     publisher: Mapped[str] = mapped_column(String(255), nullable=False)

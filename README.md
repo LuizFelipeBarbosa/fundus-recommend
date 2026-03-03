@@ -9,7 +9,7 @@ For full implementation details, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 ## System Overview
 
 - Scheduler pipeline (`fr-schedule`): crawl -> translate -> embed -> categorize -> dedup -> refresh stale embeddings
-- Data store: PostgreSQL 16 + `pgvector`
+- Data store: PostgreSQL 16 + `pgvector` (metadata/vectors) + optional Cloudflare R2 (full article bodies)
 - API: FastAPI on port `8000`
 - Frontend: Next.js on port `3000`
 
@@ -159,6 +159,7 @@ Defined in `pyproject.toml`:
 - `fr-embed`: embed unembedded articles (`--with-dedup` available)
 - `fr-classify`: re-run semantic categorization
 - `fr-fix-dates`: fix ambiguous publish dates (targeted publishers)
+- `fr-migrate-bodies`: backfill article bodies into Cloudflare R2 (`--prune-db-body` available)
 
 ## Key Environment Variables
 
@@ -176,6 +177,15 @@ From `.env.example` / `src/fundus_recommend/config.py`:
 - `CRAWL_RATE_LIMIT_PER_MINUTE`
 - `CRAWL_CIRCUIT_BREAKER_THRESHOLD`
 - `CRAWL_CIRCUIT_BREAKER_COOLDOWN_SECONDS`
+- `ARTICLE_BODY_STORAGE_MODE` (`database`, `dual`, `r2_primary`)
+- `ARTICLE_BODY_SNIPPET_CHARS`
+- `R2_ACCOUNT_ID`
+- `R2_ACCESS_KEY_ID`
+- `R2_SECRET_ACCESS_KEY`
+- `R2_BUCKET`
+- `R2_ENDPOINT` (optional)
+- `R2_REGION`
+- `R2_TIMEOUT_SECONDS`
 - `NEXT_PUBLIC_API_URL` (frontend build/runtime)
 
 ## Testing
@@ -190,6 +200,23 @@ After deploying dedup changes, run a one-time full dedup pass:
 
 ```bash
 fr-embed --with-dedup
+```
+
+For article body migration to Cloudflare R2:
+
+```bash
+# phase 1: deploy with ARTICLE_BODY_STORAGE_MODE=dual
+alembic upgrade 004
+
+# phase 2: backfill historical rows
+fr-migrate-bodies --batch-size 500
+
+# phase 3: allow body NULL in postgres + switch runtime mode
+alembic upgrade 005
+# set ARTICLE_BODY_STORAGE_MODE=r2_primary in API + scheduler
+
+# optional: prune postgres bodies after successful uploads
+fr-migrate-bodies --batch-size 500 --prune-db-body
 ```
 
 See [`docs/operations.md`](docs/operations.md) for runbook details.
@@ -216,16 +243,21 @@ Recommended service-level variables:
 | `api` | `DATABASE_URL` | Neon async URL (`postgresql+asyncpg://...`) |
 | `api` | `DATABASE_URL_SYNC` | Neon sync URL (`postgresql+psycopg2://...`) |
 | `api` | `CORS_ORIGINS` | `https://<frontend-domain>` |
+| `api` | `ARTICLE_BODY_STORAGE_MODE` | `dual` then `r2_primary` |
+| `api` | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | Cloudflare R2 credentials |
 | `frontend` | `RAILWAY_DOCKERFILE_PATH` | `Dockerfile.frontend` |
 | `frontend` | `NEXT_PUBLIC_API_URL` | `https://<api-domain>` |
 | `scheduler` | `RAILWAY_DOCKERFILE_PATH` | `Dockerfile.scheduler` |
 | `scheduler` | `DATABASE_URL` | Neon async URL |
 | `scheduler` | `DATABASE_URL_SYNC` | Neon sync URL |
+| `scheduler` | `ARTICLE_BODY_STORAGE_MODE` | `dual` then `r2_primary` |
+| `scheduler` | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | Cloudflare R2 credentials |
 | `scheduler` | `SCHEDULER_PUBLISHERS` | `all-countries` (expands to every Fundus country collection) |
 | `scheduler` | `SCHEDULER_MAX_ARTICLES` | `25` |
 | `scheduler` | `SCHEDULER_WORKERS` | `8` |
 | `scheduler` | `SCHEDULER_BATCH_SIZE` | `64` |
 | `scheduler` | `SCHEDULER_INTERVAL_MINUTES` | `5` |
+| `scheduler` | `SCHEDULER_STALE_REFRESH_LIMIT` | `1000` (cap stale re-embeds per cycle; `0` means unlimited) |
 | `scheduler` | `SCHEDULER_RUN_MODE` | `loop` (use Python built-in scheduler) |
 
 Use the Python built-in scheduler loop (`fr-schedule --interval ...`) for continuous crawling.

@@ -1,8 +1,9 @@
 import time
+import traceback
 from datetime import datetime, timedelta, timezone
 
 import click
-from sqlalchemy import func, select, update
+from sqlalchemy import func, inspect, select, update
 
 from fundus_recommend.config import settings
 from fundus_recommend.db.session import SyncSessionLocal, sync_engine
@@ -13,6 +14,25 @@ from fundus_recommend.services.categorizer import assign_category
 from fundus_recommend.services.dedup import run_dedup
 from fundus_recommend.services.embeddings import embed_texts, make_embedding_text
 from fundus_recommend.services.translation import translate_to_english
+
+_body_snippet_available: bool | None = None
+
+
+def _has_body_snippet_column() -> bool:
+    global _body_snippet_available
+    if _body_snippet_available is not None:
+        return _body_snippet_available
+
+    try:
+        column_names = {column["name"] for column in inspect(sync_engine).get_columns("articles")}
+        _body_snippet_available = "body_snippet" in column_names
+    except Exception:
+        # If introspection fails, default to the current schema expectation.
+        _body_snippet_available = True
+
+    if not _body_snippet_available:
+        click.echo("[warn] articles.body_snippet column not found; falling back to articles.body")
+    return _body_snippet_available
 
 
 def translate_new_articles(article_ids: list[int]) -> int:
@@ -47,11 +67,25 @@ def categorize_new_articles(article_ids: list[int]) -> int:
         return 0
 
     with SyncSessionLocal() as session:
-        stmt = (
-            select(Article.id, Article.title, Article.body, Article.title_en, Article.embedding)
-            .where(Article.id.in_(article_ids), Article.category.is_(None))
-            .order_by(Article.id)
-        )
+        if _has_body_snippet_column():
+            stmt = (
+                select(
+                    Article.id,
+                    Article.title,
+                    Article.body_snippet,
+                    Article.body,
+                    Article.title_en,
+                    Article.embedding,
+                )
+                .where(Article.id.in_(article_ids), Article.category.is_(None))
+                .order_by(Article.id)
+            )
+        else:
+            stmt = (
+                select(Article.id, Article.title, Article.body, Article.title_en, Article.embedding)
+                .where(Article.id.in_(article_ids), Article.category.is_(None))
+                .order_by(Article.id)
+            )
         rows = session.execute(stmt).all()
 
         if not rows:
@@ -59,13 +93,23 @@ def categorize_new_articles(article_ids: list[int]) -> int:
 
         categorized = 0
         for row in rows:
-            body_snippet = row[2][:500] if row[2] else ""
-            category = assign_category(
-                embedding=row[4],
-                title=row[1],
-                body_snippet=body_snippet,
-                title_en=row[3],
-            )
+            if _has_body_snippet_column():
+                snippet_source = row[2] or (row[3] or "")
+                body_snippet = snippet_source[:500]
+                category = assign_category(
+                    embedding=row[5],
+                    title=row[1],
+                    body_snippet=body_snippet,
+                    title_en=row[4],
+                )
+            else:
+                body_snippet = (row[2] or "")[:500]
+                category = assign_category(
+                    embedding=row[4],
+                    title=row[1],
+                    body_snippet=body_snippet,
+                    title_en=row[3],
+                )
             session.execute(update(Article).where(Article.id == row[0]).values(category=category))
             categorized += 1
         session.commit()
@@ -78,11 +122,19 @@ def embed_new_articles(article_ids: list[int], batch_size: int) -> int:
         return 0
 
     with SyncSessionLocal() as session:
-        stmt = (
-            select(Article.id, Article.title, Article.body, Article.title_en)
-            .where(Article.id.in_(article_ids), Article.embedding.is_(None))
-            .order_by(Article.id)
-        )
+        snippet_chars = max(1, settings.article_body_snippet_chars)
+        if _has_body_snippet_column():
+            stmt = (
+                select(Article.id, Article.title, Article.body_snippet, Article.body, Article.title_en)
+                .where(Article.id.in_(article_ids), Article.embedding.is_(None))
+                .order_by(Article.id)
+            )
+        else:
+            stmt = (
+                select(Article.id, Article.title, Article.body, Article.title_en)
+                .where(Article.id.in_(article_ids), Article.embedding.is_(None))
+                .order_by(Article.id)
+            )
         rows = session.execute(stmt).all()
 
         if not rows:
@@ -91,7 +143,13 @@ def embed_new_articles(article_ids: list[int], batch_size: int) -> int:
         now = datetime.now(timezone.utc)
         for i in range(0, len(rows), batch_size):
             batch = rows[i : i + batch_size]
-            texts = [make_embedding_text(r[1], r[2], title_en=r[3]) for r in batch]
+            if _has_body_snippet_column():
+                texts = [
+                    make_embedding_text(r[1], (r[2] or (r[3] or "")[:snippet_chars]), title_en=r[4])
+                    for r in batch
+                ]
+            else:
+                texts = [make_embedding_text(r[1], (r[2] or "")[:snippet_chars], title_en=r[3]) for r in batch]
             vectors = embed_texts(texts)
 
             for row, vec in zip(batch, vectors):
@@ -104,30 +162,60 @@ def embed_new_articles(article_ids: list[int], batch_size: int) -> int:
         return len(rows)
 
 
-def refresh_stale_embeddings(max_age_days: int = 7, batch_size: int = 64) -> int:
+def refresh_stale_embeddings(max_age_days: int = 7, batch_size: int = 64, max_rows: int | None = None) -> int:
     """Re-embed articles whose embeddings are older than max_age_days or where title_en was set after embedding."""
+    if max_rows is not None and max_rows <= 0:
+        return 0
+
     cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
 
     with SyncSessionLocal() as session:
-        stmt = (
-            select(Article.id, Article.title, Article.body, Article.title_en)
-            .where(
-                Article.embedding.is_not(None),
-                Article.embedded_at.is_not(None),
-                Article.embedded_at < cutoff,
+        snippet_chars = max(1, settings.article_body_snippet_chars)
+        if _has_body_snippet_column():
+            stmt = (
+                select(Article.id, Article.title, Article.body_snippet, Article.body, Article.title_en)
+                .where(
+                    Article.embedding.is_not(None),
+                    Article.embedded_at.is_not(None),
+                    Article.embedded_at < cutoff,
+                )
+                .order_by(Article.id)
             )
-            .order_by(Article.id)
-        )
+        else:
+            stmt = (
+                select(Article.id, Article.title, Article.body, Article.title_en)
+                .where(
+                    Article.embedding.is_not(None),
+                    Article.embedded_at.is_not(None),
+                    Article.embedded_at < cutoff,
+                )
+                .order_by(Article.id)
+            )
+
+        if max_rows is not None:
+            stmt = stmt.limit(max_rows)
         rows = session.execute(stmt).all()
 
         if not rows:
             return 0
 
-        click.echo(f"  Refreshing {len(rows)} stale embeddings (older than {max_age_days} days)...")
+        if max_rows is None:
+            click.echo(f"  Refreshing {len(rows)} stale embeddings (older than {max_age_days} days)...")
+        else:
+            click.echo(
+                f"  Refreshing {len(rows)} stale embeddings (older than {max_age_days} days, "
+                f"cap={max_rows} per cycle)..."
+            )
         now = datetime.now(timezone.utc)
         for i in range(0, len(rows), batch_size):
             batch = rows[i : i + batch_size]
-            texts = [make_embedding_text(r[1], r[2], title_en=r[3]) for r in batch]
+            if _has_body_snippet_column():
+                texts = [
+                    make_embedding_text(r[1], (r[2] or (r[3] or "")[:snippet_chars]), title_en=r[4])
+                    for r in batch
+                ]
+            else:
+                texts = [make_embedding_text(r[1], (r[2] or "")[:snippet_chars], title_en=r[3]) for r in batch]
             vectors = embed_texts(texts)
 
             for row, vec in zip(batch, vectors):
@@ -225,7 +313,12 @@ def run_cycle(publishers: list[str], max_articles: int, language: str | None, ba
         f"max_cluster_size={max_cluster_size}"
     )
 
-    refreshed = refresh_stale_embeddings(max_age_days=7, batch_size=batch_size)
+    stale_refresh_limit = max(0, settings.scheduler_stale_refresh_limit)
+    refreshed = refresh_stale_embeddings(
+        max_age_days=7,
+        batch_size=batch_size,
+        max_rows=stale_refresh_limit if stale_refresh_limit > 0 else None,
+    )
     if refreshed:
         click.echo(f"  Refreshed {refreshed} stale embeddings")
 
@@ -256,7 +349,13 @@ def main(publishers: str, max_articles: int, language: str | None, interval: int
         f"interval={interval}min, workers={workers}"
     )
 
-    run_cycle(pub_list, max_articles, language, batch_size, workers)
+    try:
+        run_cycle(pub_list, max_articles, language, batch_size, workers)
+    except Exception as exc:
+        click.echo(f"[error] Scheduler cycle crashed: {type(exc).__name__}: {exc}")
+        click.echo(traceback.format_exc())
+        if run_once:
+            raise
 
     if run_once:
         return
@@ -264,7 +363,11 @@ def main(publishers: str, max_articles: int, language: str | None, interval: int
     while True:
         click.echo(f"\nSleeping {interval} minutes until next cycle...")
         time.sleep(interval * 60)
-        run_cycle(pub_list, max_articles, language, batch_size, workers)
+        try:
+            run_cycle(pub_list, max_articles, language, batch_size, workers)
+        except Exception as exc:
+            click.echo(f"[error] Scheduler cycle crashed: {type(exc).__name__}: {exc}")
+            click.echo(traceback.format_exc())
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 import click
 from sqlalchemy import select, update
 
+from fundus_recommend.config import settings
 from fundus_recommend.db.session import SyncSessionLocal, sync_engine
 from fundus_recommend.models.db import Article, Base
 from fundus_recommend.services.embeddings import embed_texts, make_embedding_text
@@ -14,7 +15,12 @@ def main(batch_size: int, with_dedup: bool) -> None:
     Base.metadata.create_all(sync_engine)
 
     with SyncSessionLocal() as session:
-        stmt = select(Article.id, Article.title, Article.body).where(Article.embedding.is_(None)).order_by(Article.id)
+        snippet_chars = max(1, settings.article_body_snippet_chars)
+        stmt = (
+            select(Article.id, Article.title, Article.body_snippet, Article.body)
+            .where(Article.embedding.is_(None))
+            .order_by(Article.id)
+        )
         rows = session.execute(stmt).all()
 
         if not rows:
@@ -23,7 +29,7 @@ def main(batch_size: int, with_dedup: bool) -> None:
             click.echo(f"Embedding {len(rows)} articles in batches of {batch_size}...")
             for i in range(0, len(rows), batch_size):
                 batch = rows[i : i + batch_size]
-                texts = [make_embedding_text(r[1], r[2]) for r in batch]
+                texts = [make_embedding_text(r[1], (r[2] or (r[3] or "")[:snippet_chars])) for r in batch]
                 vectors = embed_texts(texts)
 
                 for row, vec in zip(batch, vectors):

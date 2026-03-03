@@ -1,6 +1,6 @@
 # Fundus Recommend — Architecture & Data Flow
 
-A news recommendation engine powered by [Fundus](https://github.com/flairNLP/fundus). Crawls articles from 60+ countries, embeds them in a shared semantic space, and serves a ranked, deduplicated, categorized feed through a FastAPI backend and Next.js frontend.
+A news recommendation engine powered by [Fundus](https://github.com/flairNLP/fundus). Crawls articles from 60+ countries, embeds them in a shared semantic space, and serves a ranked, deduplicated, categorized feed through a FastAPI backend and Next.js frontend. Full article bodies can be stored in Cloudflare R2 while metadata and vectors remain in PostgreSQL.
 
 ---
 
@@ -19,7 +19,11 @@ A news recommendation engine powered by [Fundus](https://github.com/flairNLP/fun
 │        ▼                                               ▼                │
 │   ┌──────────────────────────────────────────────────────────┐          │
 │   │              PostgreSQL + pgvector                       │          │
-│   │  articles | article_views | users | user_preferences     │          │
+│   │  articles metadata + vectors | views | users | prefs     │          │
+│   └──────────────────────────────────────────────────────────┘          │
+│   ┌──────────────────────────────────────────────────────────┐          │
+│   │                Cloudflare R2 (optional)                 │          │
+│   │          full article body payloads (private)           │          │
 │   └──────────────────────────────────────────────────────────┘          │
 │        ▲                         │                                      │
 │   ┌────┘                         │                                      │
@@ -82,6 +86,15 @@ A news recommendation engine powered by [Fundus](https://github.com/flairNLP/fun
 | `EMBEDDING_DIM`      | `384`                                            | Vector column   |
 | `DEDUP_THRESHOLD`    | `0.50`                                           | Dedup clustering|
 | `CORS_ORIGINS`       | `http://localhost:3000`                          | API CORS        |
+| `ARTICLE_BODY_STORAGE_MODE` | `database` | Body storage mode (`database`, `dual`, `r2_primary`) |
+| `ARTICLE_BODY_SNIPPET_CHARS` | `1000` | Snippet length stored in DB for ML pipelines |
+| `R2_ACCOUNT_ID` | _unset_ | R2 endpoint account (when `R2_ENDPOINT` not set) |
+| `R2_ACCESS_KEY_ID` | _unset_ | R2 auth |
+| `R2_SECRET_ACCESS_KEY` | _unset_ | R2 auth |
+| `R2_BUCKET` | _unset_ | R2 bucket for article bodies |
+| `R2_ENDPOINT` | _unset_ | Optional custom S3-compatible endpoint |
+| `R2_REGION` | `auto` | R2 region |
+| `R2_TIMEOUT_SECONDS` | `10` | R2 client connect/read timeout |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000`                          | Frontend (build-time) |
 
 All settings are defined in `src/fundus_recommend/config.py` using Pydantic Settings and loaded from `.env`.
@@ -99,7 +112,10 @@ PostgreSQL 16 with the **pgvector** extension for vector similarity search.
 | `id`                | `INTEGER` PK            | Auto-increment                          |
 | `url`               | `TEXT` UNIQUE NOT NULL   | Dedup key during crawl                  |
 | `title`             | `TEXT` NOT NULL          | Original language title                 |
-| `body`              | `TEXT` NOT NULL          | Full article text                       |
+| `body`              | `TEXT`                   | Full article text fallback (nullable after R2 cutover) |
+| `body_snippet`      | `TEXT` NOT NULL          | Body snippet used by embedding/classifier pipelines |
+| `body_storage_key`  | `TEXT`                   | Cloudflare R2 object key                |
+| `body_storage_provider` | `VARCHAR(16)` NOT NULL | `db` or `r2`                            |
 | `authors`           | `TEXT[]`                 | Array of author names                   |
 | `topics`            | `TEXT[]`                 | Publisher-provided topic tags           |
 | `publisher`         | `VARCHAR(255)` NOT NULL  | Publisher display name                  |
@@ -177,6 +193,7 @@ Sleep {interval} minutes, repeat.
 - Uses the **Fundus** library to crawl articles from publisher RSS feeds, sitemaps, and newsmaps
 - Deduplicates by URL (skips if `article.url` already in DB)
 - Extracts: title, body, authors, topics, publisher name, language, publishing date, cover image
+- Writes `body_snippet` to PostgreSQL for downstream ML tasks and optionally uploads full body to R2 (based on `ARTICLE_BODY_STORAGE_MODE`)
 - Publishing dates are resolved via `date_resolution.py` which handles publisher-specific date extraction and dd/mm vs mm/dd ambiguity
 - Inserts each article into the `articles` table
 
@@ -195,7 +212,7 @@ Sleep {interval} minutes, repeat.
 #### Step 3 — Embed
 
 - Selects articles where `embedding IS NULL`
-- Constructs embedding input: `"{title_en or title}\n{body[:400]}"`
+- Constructs embedding input: `"{title_en or title}\n{body_snippet[:400]}"` (fallbacks to DB body only when snippet is missing)
 - Encodes in batches (default 64) using **SentenceTransformer** `all-MiniLM-L6-v2`
 - Embeddings are **L2-normalized** (unit vectors) — 384 dimensions
 - Updates `embedding` and `embedded_at` columns
@@ -206,7 +223,7 @@ Sleep {interval} minutes, repeat.
 
 - Selects articles where `category IS NULL`
 - Each of 7 categories has 5 exemplar headlines whose embeddings form a **prototype centroid**
-- Computes cosine similarity between article embedding and each category prototype
+- Computes cosine similarity between article embedding and each category prototype (snippet fallback used when embedding missing)
 - Assigns category if: `top_score >= 0.12` AND `(top_score - runner_up) >= 0.02`
 - Otherwise assigns `"General"`
 

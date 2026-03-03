@@ -25,6 +25,7 @@ from fundus_recommend.ingest.types import (
     PublisherRunDiagnostics,
 )
 from fundus_recommend.models.db import Article, CrawlRun, CrawlRunPublisher
+from fundus_recommend.services.article_body_store import BodyStoreError, build_body_key, put_body
 
 
 def _adapter_for(adapter: AdapterType):
@@ -66,6 +67,8 @@ def _deserialize_config(payload: dict) -> PublisherConfig:
 
 def _insert_candidates(candidates: list[CrawlArticleCandidate]) -> list[int]:
     inserted_ids: list[int] = []
+    storage_mode = settings.article_body_storage_mode
+    snippet_chars = max(1, settings.article_body_snippet_chars)
 
     with SyncSessionLocal() as session:
         for candidate in candidates:
@@ -77,6 +80,8 @@ def _insert_candidates(candidates: list[CrawlArticleCandidate]) -> list[int]:
                 url=candidate.url,
                 title=candidate.title,
                 body=candidate.body,
+                body_snippet=(candidate.body or "")[:snippet_chars],
+                body_storage_provider="db",
                 authors=candidate.authors,
                 topics=candidate.topics,
                 publisher=candidate.publisher,
@@ -85,6 +90,26 @@ def _insert_candidates(candidates: list[CrawlArticleCandidate]) -> list[int]:
                 cover_image_url=candidate.cover_image_url,
             )
             session.add(db_article)
+            try:
+                session.flush()
+            except IntegrityError:
+                session.rollback()
+                continue
+
+            if storage_mode in {"dual", "r2_primary"}:
+                body_key = build_body_key(int(db_article.id), candidate.url)
+                try:
+                    put_body(body_key, candidate.body)
+                    db_article.body_storage_key = body_key
+                    db_article.body_storage_provider = "r2"
+                    if storage_mode == "r2_primary":
+                        db_article.body = None
+                except BodyStoreError as exc:
+                    click.echo(
+                        f"[warn] r2 body upload failed article_id={db_article.id} "
+                        f"publisher={candidate.publisher} error={exc}"
+                    )
+
             try:
                 session.commit()
             except IntegrityError:

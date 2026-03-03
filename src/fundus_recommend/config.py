@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings
 
@@ -30,6 +31,18 @@ class Settings(BaseSettings):
     crawl_rate_limit_per_minute: int = 30
     crawl_circuit_breaker_threshold: int = 5
     crawl_circuit_breaker_cooldown_seconds: int = 900
+
+    article_body_storage_mode: Literal["database", "dual", "r2_primary"] = "database"
+    article_body_snippet_chars: int = 1000
+    scheduler_stale_refresh_limit: int = 1000
+
+    r2_account_id: str | None = None
+    r2_access_key_id: str | None = None
+    r2_secret_access_key: str | None = None
+    r2_bucket: str | None = None
+    r2_endpoint: str | None = None
+    r2_region: str = "auto"
+    r2_timeout_seconds: int = 10
 
     model_config = {"env_file": str(_PROJECT_DIR / ".env"), "env_file_encoding": "utf-8"}
 

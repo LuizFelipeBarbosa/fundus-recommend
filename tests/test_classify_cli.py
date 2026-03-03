@@ -55,11 +55,11 @@ class _FakeSessionContext:
 class ClassifyCliTests(unittest.TestCase):
     def test_classify_all_articles_processes_in_batches(self) -> None:
         rows_batch_1 = [
-            (1, "Title 1", "Body 1", None, [1.0, 0.0, 0.0]),
-            (2, "Title 2", "Body 2", None, [0.0, 1.0, 0.0]),
+            (1, "Title 1", "Snippet 1", "Body 1", None, [1.0, 0.0, 0.0]),
+            (2, "Title 2", "Snippet 2", "Body 2", None, [0.0, 1.0, 0.0]),
         ]
         rows_batch_2 = [
-            (3, "Title 3", "Body 3", "Translated", None),
+            (3, "Title 3", "Snippet 3", "Body 3", "Translated", None),
         ]
         fake_session = _FakeSession([rows_batch_1, rows_batch_2, []])
 

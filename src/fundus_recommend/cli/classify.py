@@ -3,6 +3,7 @@ from collections import Counter
 import click
 from sqlalchemy import select, update
 
+from fundus_recommend.config import settings
 from fundus_recommend.models.db import Article, Base
 from fundus_recommend.services.categorizer import CATEGORY_PRIORITY, assign_category
 from fundus_recommend.db.session import SyncSessionLocal, sync_engine
@@ -13,11 +14,12 @@ def classify_all_articles(batch_size: int = 256) -> tuple[int, Counter[str]]:
     total = 0
     counts: Counter[str] = Counter()
     last_id = 0
+    snippet_chars = max(1, settings.article_body_snippet_chars)
 
     with SyncSessionLocal() as session:
         while True:
             stmt = (
-                select(Article.id, Article.title, Article.body, Article.title_en, Article.embedding)
+                select(Article.id, Article.title, Article.body_snippet, Article.body, Article.title_en, Article.embedding)
                 .where(Article.id > last_id)
                 .order_by(Article.id)
                 .limit(batch_size)
@@ -27,12 +29,13 @@ def classify_all_articles(batch_size: int = 256) -> tuple[int, Counter[str]]:
                 break
 
             for row in rows:
-                body_snippet = row[2][:500] if row[2] else ""
+                snippet_source = row[2] or (row[3] or "")[:snippet_chars]
+                body_snippet = snippet_source[:500]
                 category = assign_category(
-                    embedding=row[4],
+                    embedding=row[5],
                     title=row[1],
                     body_snippet=body_snippet,
-                    title_en=row[3],
+                    title_en=row[4],
                 )
                 session.execute(update(Article).where(Article.id == row[0]).values(category=category))
                 counts[category] += 1
